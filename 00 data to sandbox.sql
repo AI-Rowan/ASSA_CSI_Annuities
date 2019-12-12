@@ -1,3 +1,5 @@
+DROP TABLE assa_sandbox.v1_assa_movement;
+
 CREATE TABLE assa_sandbox.v1_assa_movement
 	WITH (
 			format = 'ORC'
@@ -6,9 +8,20 @@ CREATE TABLE assa_sandbox.v1_assa_movement
 			,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
 			,bucket_count = 25
 			) AS
+
 SELECT policy_number
-	,life_number
+	,COALESCE(TRY_CAST(TRY_CAST(life_number AS INTEGER) AS VARCHAR), life_number) AS life_number
 	,change_in_movement_code
+	,CASE 
+		WHEN TRIM(change_in_movement_code) IN (
+				'X0'
+				,'XNULL'
+				,'XXXX'
+				,'X'
+				)
+			THEN '00' -- Most of these bad cases seem to be new business
+		ELSE SUBSTR(change_in_movement_code, - 2)
+		END AS movement_code_clean
 	,DATE (effective_date_of_change_movement) AS effective_date_of_change_movement
 	,movementcounter
 	,direction_of_movement
@@ -28,7 +41,7 @@ SELECT policy_number
 	,is_new_generation
 	,special_offer_marker
 	,underwriter_loadings
-	,DATE_PARSE (process_time_stamp, '%Y-%m-%d %H:%i:%s') AS process_time_stamp
+	,DATE_PARSE(process_time_stamp, '%Y-%m-%d %H:%i:%s') AS process_time_stamp
 	,process_number
 	,sourcefilename
 	,company_code

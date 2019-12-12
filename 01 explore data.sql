@@ -1,4 +1,5 @@
 --WARNING! ERRORS ENCOUNTERED DURING SQL PARSING!
+--WARNING! ERRORS ENCOUNTERED DURING SQL PARSING!
 -- Investigate data contents
 -- Split of companies/source files?
 SELECT sourcefilename
@@ -102,3 +103,16 @@ ORDER BY a.policy_number
 	,a.life_number
 	,a.sourcefilename
 	,a.movementcounter;
+
+-- Check that all movements have the correct direction
+SELECT company_code
+	,movement_code_clean
+	,direction_of_movement
+	,count(*)
+FROM assa_sandbox.v1_assa_movement
+GROUP BY company_code
+	,movement_code_clean
+	,direction_of_movement
+ORDER BY company_code
+	,movement_code_clean
+	,direction_of_movement;
