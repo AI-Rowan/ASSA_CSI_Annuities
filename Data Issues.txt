@@ -1,0 +1,19 @@
+
+
+Company 11 --------------------------------------------------------------------------------------------------------------------------------------------
+a fair number of cases lacking a termination record.
+Lots of policies that terminated pre-2009 suddenly have new exposure coming through in 2009, 2010 and 2011.
+It looks like this must be due to a system issue at the origin.
+
+Company 25 --------------------------------------------------------------------------------------------------------------------------------------------
+DOBs and life_numbers changed in 2012.
+Prior to that date the DOB was set to the same day and month as the policy anniversary - only the year was correct.
+Life numbers prior to 2012 followed the pattern XXXXXXXXXX_N where XXXXXXXXXX is the policy number
+After 2012 they changed to N_1, but the N seems to be the same as the pre-2012 value for given life
+Many cases lacking a termination record, but this is likely due to the issue above.
+
+Company 30 --------------------------------------------------------------------------------------------------------------------------------------------
+Policy and life numbers take the form YYYY_NNNNNN where YYYY is the current data year.
+NNNNN does not appear to be consistent across different years for a given policy
+This makes it very difficult to determine when a particular policy terminated, and to do reasonability checks.
+It also means we have to do a bunch of workarounds specific to this company.

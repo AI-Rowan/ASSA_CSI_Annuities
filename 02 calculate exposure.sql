@@ -25,6 +25,7 @@ AS (
    This doesn't make sense unless there is also a reversal record so we need to remove this late exposure
    This CTE looks takes the sum of all "direction_of_movement" entries for prior records with a termination
    I do it this way in order to try pick up reversals (they should make the sum 0)
+   We also take the opportunity to check whether the current record is a termination (attempting to allow for reinstatement)
    -------------------------------------------------------------------------------------------------------*/
 	,termination_check
 AS (
@@ -44,6 +45,21 @@ AS (
 				,movementcounter rows BETWEEN unbounded preceding
 					AND 1 preceding
 			) AS prior_termination
+		,CASE 
+			WHEN movement_code_clean IN (
+					'30'
+					,'43'
+					,'44'
+					,'50'
+					)
+				THEN - SUM(direction_of_movement) OVER (
+						PARTITION BY company_code
+						,policy_number
+						,life_number
+						,effective_date_of_change_movement
+						)
+			ELSE 0
+			END AS current_termination
 		,v1_assa_movement.*
 	FROM assa_sandbox.v1_assa_movement
 	)
@@ -52,7 +68,21 @@ AS (
    -------------------------------------------------------------------------------------------------------*/
 	,calc_next_movement
 AS (
-	SELECT lead(effective_date_of_change_movement) OVER (
+	SELECT
+		-- try to find next movement date for this policy
+		lead(effective_date_of_change_movement, 1
+			-- If there is no next movement... 
+			, CASE 
+				WHEN current_termination != 0
+					THEN effective_date_of_change_movement -- set it to termination date if available, 
+				WHEN EXTRACT(YEAR FROM effective_date_of_change_movement) < EXTRACT(YEAR FROM DATE (param_value)) - 1
+					THEN date_add('day', CAST(date_diff('day', effective_date_of_change_movement, date_parse(CAST(EXTRACT(year FROM 
+												effective_date_of_change_movement) + 1 AS VARCHAR) || '-01-01', '%Y-%m-%d')) / 2.0 AS BIGINT), 
+							effective_date_of_change_movement)
+						-- or assume termination half way through remainder of year
+				ELSE DATE (param_value)
+					-- or end of investigation period if this is last full year, 
+				END) OVER (
 			PARTITION BY company_code
 			,policy_number
 			,life_number ORDER BY effective_date_of_change_movement
@@ -60,10 +90,11 @@ AS (
 			) AS next_movement
 		,termination_check.*
 	FROM termination_check
+	INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
 	WHERE NOT (
 			-- For now we are only excluding late exposure for company 11
 			company_code = 11
-			AND prior_termination < 0
+			AND COALESCE(prior_termination, 0) < 0
 			)
 	)
 	/* -------------------------------------------------------------------------------------------------------
@@ -79,7 +110,7 @@ AS (
 		,calc_next_movement.*
 	FROM calc_next_movement
 	FULL OUTER JOIN exposure_years ON exposure_years.calendar_year >= EXTRACT(YEAR FROM effective_date_of_change_movement)
-		AND exposure_years.calendar_year <= EXTRACT(YEAR FROM date_add('day', - 1, next_movement))
+		AND exposure_years.calendar_year <= COALESCE(EXTRACT(YEAR FROM date_add('day', - 1, next_movement)), 9999)
 	)
 	/* -------------------------------------------------------------------------------------------------------
    Now we filter some of the newly created date records and calculate beginning and end dates
@@ -103,23 +134,14 @@ AS (
    -------------------------------------------------------------------------------------------------------*/
 	,exposure_calc
 AS (
-	SELECT
-		/*,date_diff('day', MAX(effective_date_of_change_movement, CASE 
-				WHEN next_movement IS NULL
-					AND movement_code_clean IN (
-						'30'
-						,'43'
-						,'44'
-						,'50'
-						)
-					THEN effective_date_of_change_movement
-				WHEN next_movement IS NULL
-					THEN DATE '2014-01-01'
-				ELSE next_movement
-				END) AS exposure_days*/
-		extract(year FROM effective_date_of_change_movement) AS calendar_year_2
-		,date_diff('year', policy_date_of_entry, effective_date_of_change_movement) AS duration
-		,date_diff('day', date_trunc('year', effective_date_of_change_movement), date_trunc('year', date_add('year', 1, effective_date_of_change_movement))) AS days_in_year
+	SELECT date_diff('year', policy_date_of_entry, policy_anniversary) AS policy_duration
+		,date_diff('day', begin_date, end_date) AS exposure_days
+		,date_diff('day', date_trunc('year', effective_date_of_change_movement), date_trunc('year', date_add('year', 1, effective_date_of_change_movement))) 
+		AS days_in_year
+		,date_diff('year', date_of_birth, policy_anniversary) AS age_last_at_pa
+		,date_diff('year', date_of_birth, date_add('month', 6, policy_anniversary)) AS age_nrst_at_pa
+		,date_diff('year', date_of_birth, date_parse(CAST(calendar_year AS VARCHAR) || '-01-01', '%Y-%m-%d')) AS age_last_at_jan
+		,date_diff('year', date_of_birth, date_parse(CAST(calendar_year AS VARCHAR) || '-07-01', '%Y-%m-%d')) AS age_nrst_at_jan
 		,exposure_boundary_dates.*
 	FROM exposure_boundary_dates
 	)
