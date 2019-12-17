@@ -1,4 +1,4 @@
-DROP TABLE assa_sandbox.v1_assa_movement;
+DROP TABLE IF EXISTS assa_sandbox.v1_assa_movement;
 
 CREATE TABLE assa_sandbox.v1_assa_movement
 	WITH (
@@ -9,8 +9,9 @@ CREATE TABLE assa_sandbox.v1_assa_movement
 			,bucket_count = 25
 			) AS
 
-SELECT policy_number
-	,COALESCE(TRY_CAST(TRY_CAST(life_number AS INTEGER) AS VARCHAR), life_number) AS life_number
+SELECT v1_assa_movement.policy_number
+	,COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
+			life_number)) AS life_number
 	,change_in_movement_code
 	,CASE 
 		WHEN TRIM(change_in_movement_code) IN (
@@ -22,14 +23,21 @@ SELECT policy_number
 			THEN '00' -- Most of these bad cases seem to be new business
 		ELSE SUBSTR(change_in_movement_code, - 2)
 		END AS movement_code_clean
-	,DATE (effective_date_of_change_movement) AS effective_date_of_change_movement
+	,CASE 
+		WHEN extract(MONTH FROM DATE (effective_date_of_change_movement)) = 12
+			AND extract(DAY FROM DATE (effective_date_of_change_movement)) = 31
+			AND SUBSTR(change_in_movement_code, - 2) = '10'
+			THEN date_add('day', 1, DATE (effective_date_of_change_movement))
+				-- Just a minor cleanup where 31-Dec is being used for calendar year start
+		ELSE DATE (effective_date_of_change_movement)
+		END AS effective_date_of_change_movement
 	,movementcounter
 	,direction_of_movement
 	,sum_assured_in_rand_before_movement
 	,sum_assured_in_rand_after_movement
 	,cause_of_death
-	,DATE (policy_date_of_entry) AS policy_date_of_entry
-	,DATE (date_of_birth) AS date_of_birth
+	,DATE (v1_assa_movement.policy_date_of_entry) AS policy_date_of_entry
+	,DATE (COALESCE(c25_life_data.dob_to_use, v1_assa_movement.date_of_birth)) AS date_of_birth
 	,sum_assured_in_rand
 	,sex_code
 	,type_of_assurance
@@ -54,8 +62,8 @@ FROM "assa-lake".v1_assa_movement
    Seems there were only 28 cases so maybe didn't need to worry
    ------------------------------------------------------------------------------------------------------------------------------------------------- */
 LEFT JOIN (
-	SELECT company_code as company_code_z
-		,policy_number as policy_number_z /* ,life number -- life number is null for co 11 */
+	SELECT company_code AS company_code_z
+		,policy_number AS policy_number_z /* ,life number -- life number is null for co 11 */
 	FROM "assa-lake".v1_assa_movement
 	WHERE company_code = 11
 		AND DATE (policy_date_of_entry) < DATE '2003-01-01'
@@ -64,13 +72,38 @@ LEFT JOIN (
 	HAVING min(year_of_data) = 2009
 	) AS c11_check ON c11_check.company_code_z = v1_assa_movement.company_code
 	AND c11_check.policy_number_z = v1_assa_movement.policy_number
+/* -------------------------------------------------------------------------------------------------------------------------------------------------
+   For company 25 the format of the life numbers changed around 2012
+   Prior to that the DOBs were also wrong. 
+   Here we try to correct as far as we can by trying to calculate a uniquely identifiable life number and getting the latest DOB
+   ------------------------------------------------------------------------------------------------------------------------------------------------- */
+LEFT JOIN (
+	SELECT DISTINCT policy_number
+		,life_number
+		,date_of_birth
+		,policy_date_of_entry
+		,coalesce(regexp_extract(life_number, policy_number || '_(\d*)', 1), regexp_extract(life_number, '^(\d{1,3})_1$', 1)) AS life_number_to_use
+		,last_value(date_of_birth) OVER (
+			PARTITION BY policy_number
+			,coalesce(regexp_extract(life_number, policy_number || '_(\d*)', 1), regexp_extract(life_number, '^(\d{1,3})_1$', 1)) ORDER BY DATE (effective_date_of_change_movement
+					) RANGE BETWEEN UNBOUNDED PRECEDING
+					AND UNBOUNDED FOLLOWING
+			) AS dob_to_use
+	FROM "assa-lake".v1_assa_movement
+	WHERE company_code = 25
+	ORDER BY policy_number
+		,coalesce(regexp_extract(life_number, policy_number || '_(\d*)', 1), regexp_extract(life_number, '^(\d{1,3})_1$', 1))
+	) AS c25_life_data ON c25_life_data.policy_number = v1_assa_movement.policy_number
+	AND c25_life_data.date_of_birth = v1_assa_movement.date_of_birth
+	AND c25_life_data.policy_date_of_entry = v1_assa_movement.policy_date_of_entry
+	AND c25_life_data.life_number = v1_assa_movement.life_number
+	AND v1_assa_movement.company_code = 25
 WHERE c11_check.policy_number_z IS NULL;
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     This creates a table containing parameters for the experience calculation
 	> exposure_end_date : the cutoff date for the exposure calculation
 	----------------------------------------------------------------------------------------------------------------------------------------------- */
-
 CREATE TABLE assa_sandbox.csi_mort_params
 	WITH (
 			format = 'ORC'
