@@ -1,5 +1,5 @@
-DROP TABLE IF EXISTS assa_sandbox.assa_exposure;
-
+--DROP TABLE IF EXISTS assa_sandbox.assa_exposure;
+--
 CREATE TABLE assa_sandbox.assa_exposure
 	WITH (
 			format = 'ORC'
@@ -9,11 +9,11 @@ CREATE TABLE assa_sandbox.assa_exposure
 			,bucket_count = 25
 			) AS
 /* -------------------------------------------------------------------------------------------------------
-   First we calculate a list of all the years that we will have exposure for. 
-   Note that we have to calculate each possible combination of calendar year and policy year 
-   e.g. 2005 calendar year will be split between 2004 and 2005 policy years
-   Easiest to get list of potential policy years and get result of adding 0 and 1 to get calendar years
-   -------------------------------------------------------------------------------------------------------*/
+First we calculate a list of all the years that we will have exposure for. 
+Note that we have to calculate each possible combination of calendar year and policy year 
+e.g. 2005 calendar year will be split between 2004 and 2005 policy years
+Easiest to get list of potential policy years and get result of adding 0 and 1 to get calendar years
+-------------------------------------------------------------------------------------------------------*/
 WITH exposure_years AS (
 		SELECT y.policy_year
 			,y.policy_year + o.offset AS calendar_year
@@ -28,12 +28,12 @@ WITH exposure_years AS (
 		CROSS JOIN UNNEST(offset) AS o(offset)
 		)
 	/* -------------------------------------------------------------------------------------------------------
-   There are cases where there is a termination record (e.g. 30 = death) but new exposure later
-   This doesn't make sense unless there is also a reversal record so we need to remove this late exposure
-   This CTE looks takes the sum of all "direction_of_movement" entries for prior records with a termination
-   I do it this way in order to try pick up reversals (they should make the sum 0)
-   We also take the opportunity to check whether the current record is a termination (attempting to allow for reinstatement)
-   -------------------------------------------------------------------------------------------------------*/
+There are cases where there is a termination record (e.g. 30 = death) but new exposure later
+This doesn't make sense unless there is also a reversal record so we need to remove this late exposure
+This CTE looks takes the sum of all "direction_of_movement" entries for prior records with a termination
+I do it this way in order to try pick up reversals (they should make the sum 0)
+We also take the opportunity to check whether the current record is a termination (attempting to allow for reinstatement)
+-------------------------------------------------------------------------------------------------------*/
 	,termination_check AS (
 		SELECT sum(CASE 
 					WHEN movement_code_clean IN (
@@ -48,9 +48,20 @@ WITH exposure_years AS (
 				PARTITION BY company_code
 				,policy_number
 				,life_number ORDER BY effective_date_of_change_movement
-					,movementcounter rows BETWEEN unbounded preceding
+					,movementcounter ROWS BETWEEN unbounded preceding
 						AND 1 preceding
 				) AS prior_termination
+			,sum(CASE 
+					WHEN movement_code_clean = '30'
+						THEN direction_of_movement
+					ELSE 0
+					END) OVER (
+				PARTITION BY company_code
+				,policy_number
+				,life_number ORDER BY effective_date_of_change_movement
+					,movementcounter ROWS BETWEEN unbounded preceding
+						AND 1 preceding
+				) AS prior_claim
 			,- SUM(CASE 
 					WHEN movement_code_clean IN (
 							'30'
@@ -70,10 +81,10 @@ WITH exposure_years AS (
 		FROM assa_sandbox.v1_assa_movement
 		)
 	/* -------------------------------------------------------------------------------------------------------
-   Next we need to find the next movement for this policy so that we know the end of the exposure period
-   We cut off at the end of the study period, or if this is a termination stop where we are.
-   We also use this step to remove the post-termination exposure that we identified in the last section
-   -------------------------------------------------------------------------------------------------------*/
+Next we need to find the next movement for this policy so that we know the end of the exposure period
+We cut off at the end of the study period, or if this is a termination stop where we are.
+We also use this step to remove the post-termination exposure that we identified in the last section
+-------------------------------------------------------------------------------------------------------*/
 	,calc_next_movement AS (
 		SELECT
 			-- try to find next movement date for this policy
@@ -99,21 +110,21 @@ WITH exposure_years AS (
 		FROM termination_check
 		INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
 		WHERE NOT (
-				-- For now we are only excluding late exposure for company 11 and company 12
-				company_code IN (
-					11
-					,12
+				-- We are conservative and try to include all claims even if there was an earlier termination record, unless that record was a claim too
+				(
+					COALESCE(prior_termination, 0) < 0
+					AND movement_code_clean != '30'
 					)
-				AND COALESCE(prior_termination, 0) < 0
+				OR COALESCE(prior_claim, 0) < 0
 				)
 		)
 	/* -------------------------------------------------------------------------------------------------------
-   Now that we have the known end date, we need to split into individual calendar and policy years.
-   This is necessary because of cases where there is no renewal record in a given calendar year
-   We join each record to the policy years from exposure_years that fall between this movement and the next 
-   Each policy year has two calendar years associated with it, so this will normally create multiple records
-   We do it that way so that we can split each calendar year into its constituent policy years
-   -------------------------------------------------------------------------------------------------------*/
+Now that we have the known end date, we need to split into individual calendar and policy years.
+This is necessary because of cases where there is no renewal record in a given calendar year
+We join each record to the policy years from exposure_years that fall between this movement and the next 
+Each policy year has two calendar years associated with it, so this will normally create multiple records
+We do it that way so that we can split each calendar year into its constituent policy years
+-------------------------------------------------------------------------------------------------------*/
 	,create_all_years AS (
 		SELECT exposure_years.*
 			,date_add('year', policy_year - EXTRACT(year FROM policy_date_of_entry), policy_date_of_entry) AS policy_anniversary
@@ -122,19 +133,20 @@ WITH exposure_years AS (
 			,calc_next_movement.*
 		FROM calc_next_movement
 		FULL OUTER JOIN exposure_years ON exposure_years.calendar_year >= EXTRACT(YEAR FROM effective_date_of_change_movement)
-			AND exposure_years.calendar_year <= COALESCE(EXTRACT(YEAR FROM date_add('day', - 1, next_movement)), 9999)
+			AND exposure_years.calendar_year <= COALESCE(EXTRACT(YEAR FROM GREATEST(date_add('day', - 1, next_movement), effective_date_of_change_movement)), 
+				9999)
 		)
 	/* -------------------------------------------------------------------------------------------------------
-   Now we filter some of the newly created date records and calculate beginning and end dates
-   to ensure that we have no overlapping exposure
-   A reminder that we've basically made sure we have (at least) two records for each year:
-     ** Before policy anniversary
-	 ** After policy anniversary 
-   Any existing records for each year would have effectively been duplicated,
-   so we need to make sure to only keep the right records 
-   Then we set the beginning date to the latest of the prior policy anniversary, the start of this year, or the date of this movement
-   End date becomes earliest of next policy anniversary, end of this year, or date of next movement
-   -------------------------------------------------------------------------------------------------------*/
+Now we filter some of the newly created date records and calculate beginning and end dates
+to ensure that we have no overlapping exposure
+A reminder that we've basically made sure we have (at least) two records for each year:
+** Before policy anniversary
+** After policy anniversary 
+Any existing records for each year would have effectively been duplicated,
+so we need to make sure to only keep the right records 
+Then we set the beginning date to the latest of the prior policy anniversary, the start of this year, or the date of this movement
+End date becomes earliest of next policy anniversary, end of this year, or date of next movement
+-------------------------------------------------------------------------------------------------------*/
 	,exposure_boundary_dates AS (
 		SELECT GREATEST(effective_date_of_change_movement, policy_anniversary, date_parse(CAST(calendar_year AS VARCHAR) || '-01-01', '%Y-%m-%d')) AS begin_date
 			,LEAST(next_movement, next_policy_anniversary, date_parse(CAST(calendar_year + 1 AS VARCHAR) || '-01-01', '%Y-%m-%d')) AS end_date
@@ -147,9 +159,9 @@ WITH exposure_years AS (
 			OR (policy_year >= calendar_year)
 		)
 	/* -------------------------------------------------------------------------------------------------------
-   Here we finally calculate the number of days applicable for the given record, and the number of days 
-   in the corresponding calendar year so that we can calculate the exposure in life years
-   -------------------------------------------------------------------------------------------------------*/
+Here we finally calculate the number of days applicable for the given record, and the number of days 
+in the corresponding calendar year so that we can calculate the exposure in life years
+-------------------------------------------------------------------------------------------------------*/
 	,exposure_calc AS (
 		SELECT date_diff('year', policy_date_of_entry, policy_anniversary) AS policy_duration
 			,date_diff('day', begin_date, end_date) AS exposure_days
@@ -197,7 +209,27 @@ SELECT CASE
 			THEN 'No accelerator'
 		ELSE 'Unspecified'
 		END AS accelerator_status
-	,underwriter_loadings
+	,CASE underwriter_loadings
+		WHEN 1
+			THEN 'EM loading 1% - 50%'
+		WHEN 2
+			THEN 'EM loading 51% - 100%'
+		WHEN 3
+			THEN 'EM loading 101% - 150%'
+		WHEN 4
+			THEN 'EM loading 151% - 200%'
+		WHEN 5
+			THEN 'EM loading more than 200%'
+		WHEN 6
+			THEN 'Flat loading < 200 per mille'
+		WHEN 7
+			THEN 'Flat loading > 200 per mille'
+		WHEN 8
+			THEN 'Underwriting exclusion'
+		WHEN 0
+			THEN 'Not Loaded'
+		ELSE 'Invalid code'
+		END AS underwriter loadings
 	,CASE underwriter_loadings
 		WHEN NULL
 			THEN 'Unspecified'
@@ -281,7 +313,7 @@ SELECT CASE
 	,lpad(movement_code_clean, 3, '0') AS change_in_movement_code
 	,sum_assured_in_rand AS sum_assured
 	,exposure_days
-	,exposure_days / 365.25 AS expyeearscen
+	,exposure_days / 365.25 AS expyearscen
 	,exposure_days / CAST(days_in_year AS DOUBLE) AS expyearscen_exact
 	,exposure_days / 365.25 * sum_assured_in_rand AS aar_weighted_exposure
 	,exposure_days / CAST(days_in_year AS DOUBLE) AS aar_weighted_exposure_exact
@@ -289,7 +321,44 @@ SELECT CASE
 		WHEN '30'
 			THEN 1
 		ELSE 0
-		END AS actual_claim_count
+		END AS actual_claim_cnt
+	,CASE movement_code_clean
+		WHEN '30'
+			THEN sum_assured_in_rand
+		ELSE 0
+		END AS actual_claim_amt
+	,CASE 
+		WHEN movement_code_clean = '30'
+			THEN CASE cause_of_death
+					WHEN 1
+						THEN 'Cancer'
+					WHEN 2
+						THEN 'Cardiac'
+					WHEN 3
+						THEN 'Cerebrovascular'
+					WHEN 4
+						THEN 'Respiratory Disease'
+					WHEN 5
+						THEN 'Accidental / Violent'
+					WHEN 6
+						THEN 'Definitely AIDS'
+					WHEN 7
+						THEN 'Suspected AIDS'
+					WHEN 8
+						THEN 'Multi-Organ failure'
+					WHEN 9
+						THEN 'Other (known, unlisted)'
+					WHEN 10
+						THEN 'Non-specific Non-natural'
+					WHEN 11
+						THEN 'Non-specific Natural'
+					WHEN 0
+						THEN 'Unspecified'
+					ELSE 'Unknown cause code: ' || CAST(cause_of_death AS VARCHAR)
+					END
+		ELSE NULL
+		END AS cause_of_death
 	,calendar_year
 	,company_code
 FROM exposure_calc
+WHERE exposure_days >= 0
