@@ -43,3 +43,32 @@ GROUP BY company_code
 	,life_number
 HAVING sum(actual_claim_cnt) > 1
 ORDER BY sum(actual_claim_cnt) DESC;
+
+-- Check for bad policy durations
+SELECT * from assa_sandbox.assa_exposure WHERE policy_duration < 0;
+
+-- Current version of code has both some missing claims and some duplicates, but I think I have done a fair job of minimising both in the context of ambiguous source data
+--
+--
+-- High level exposure check
+SELECT company_code
+	,year_of_data
+	,sum(CASE 
+			WHEN movement_code_clean = '00'
+				THEN 0.5 * direction_of_movement
+			WHEN movement_code_clean IN ('10')
+				THEN 1
+			WHEN movement_code_clean IN (
+					'30'
+					,'43'
+					,'44'
+					,'50'
+					)
+				THEN 0.5 * direction_of_movement
+			ELSE 0
+			END) AS exposure_estimate
+FROM assa_sandbox.v1_assa_movement
+GROUP BY company_code
+	,year_of_data
+ORDER BY company_code
+	,year_of_data

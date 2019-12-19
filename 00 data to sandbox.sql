@@ -1,13 +1,14 @@
-DROP TABLE IF EXISTS assa_sandbox.v1_assa_movement;
+DROP TABLE
 
-CREATE TABLE assa_sandbox.v1_assa_movement
-	WITH (
-			format = 'ORC'
-			,orc_compression = 'ZLIB'
-			,partitioned_by = ARRAY ['sourcefilename', 'company_code','year_of_data']
-			,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
-			,bucket_count = 25
-			) AS
+IF EXISTS assa_sandbox.v1_assa_movement;
+	CREATE TABLE assa_sandbox.v1_assa_movement
+		WITH (
+				format = 'ORC'
+				,orc_compression = 'ZLIB'
+				,partitioned_by = ARRAY ['sourcefilename', 'company_code','year_of_data']
+				,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
+				,bucket_count = 25
+				) AS
 
 SELECT v1_assa_movement.policy_number
 	,COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
@@ -99,6 +100,24 @@ LEFT JOIN (
 	AND c25_life_data.life_number = v1_assa_movement.life_number
 	AND v1_assa_movement.company_code = 25
 WHERE c11_check.policy_number_z IS NULL;
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------
+    Next table is the SA85-90 rates
+	----------------------------------------------------------------------------------------------------------------------------------------------- */
+CREATE TABLE assa_sandbox.mortality_sa8590
+	WITH (
+			format = 'ORC'
+			,orc_compression = 'ZLIB'
+			,partitioned_by = ARRAY ['duration']
+			,bucketed_by = ARRAY ['age']
+			,num_buckets = 10
+			)
+
+SELECT age
+	,mortality_rate_qx
+	,force_of_mortality_mux
+	,duration
+FROM "assa-lake".mortality_sa8590;
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     This creates a table containing parameters for the experience calculation

@@ -62,6 +62,17 @@ We also take the opportunity to check whether the current record is a terminatio
 					,movementcounter ROWS BETWEEN unbounded preceding
 						AND 1 preceding
 				) AS prior_claim
+			,sum(CASE 
+					WHEN movement_code_clean = '30'
+						THEN direction_of_movement
+					ELSE 0
+					END) OVER (
+				PARTITION BY company_code
+				,policy_number
+				,life_number ORDER BY effective_date_of_change_movement
+					,movementcounter rows BETWEEN 1 following
+						AND unbounded following
+				) AS reversal_follows
 			,- SUM(CASE 
 					WHEN movement_code_clean IN (
 							'30'
@@ -229,7 +240,7 @@ SELECT CASE
 		WHEN 0
 			THEN 'Not Loaded'
 		ELSE 'Invalid code'
-		END AS underwriter loadings
+		END AS underwriter_loadings
 	,CASE underwriter_loadings
 		WHEN NULL
 			THEN 'Unspecified'
@@ -317,18 +328,21 @@ SELECT CASE
 	,exposure_days / CAST(days_in_year AS DOUBLE) AS expyearscen_exact
 	,exposure_days / 365.25 * sum_assured_in_rand AS aar_weighted_exposure
 	,exposure_days / CAST(days_in_year AS DOUBLE) AS aar_weighted_exposure_exact
-	,CASE movement_code_clean
-		WHEN '30'
+	,CASE 
+		WHEN movement_code_clean = '30'
+			AND current_termination != 0
 			THEN 1
 		ELSE 0
 		END AS actual_claim_cnt
-	,CASE movement_code_clean
-		WHEN '30'
+	,CASE 
+		WHEN movement_code_clean = '30'
+			AND current_termination != 0
 			THEN sum_assured_in_rand
 		ELSE 0
 		END AS actual_claim_amt
 	,CASE 
 		WHEN movement_code_clean = '30'
+			AND current_termination != 0
 			THEN CASE cause_of_death
 					WHEN 1
 						THEN 'Cancer'
@@ -361,4 +375,4 @@ SELECT CASE
 	,calendar_year
 	,company_code
 FROM exposure_calc
-WHERE exposure_days >= 0
+WHERE exposure_days >= 0 AND policy_duration >= 0 -- Looks like company 12 occasionally has something weird going so there is an '010' record before the effective entry date of the policy

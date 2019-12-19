@@ -1,5 +1,7 @@
 All companies occasionally have records coming through after a termination such as a claim. These are removed unless there is also a corresponding reinstatement record
 Claim records are specifically *not* removed in this circumstance
+There are various cases of hard-to-interpret movements. I have had to make assumptions that make all of this work. 
+This does mean that there are some claims that potentially have been erroneously included or excluded.
 
 Company 6 ---------------------------------------------------------------------------------------------------------------------------------------------
 Issues with records coming through in the year post-termination?
