@@ -1,6 +1,6 @@
 DROP TABLE
-
 IF EXISTS assa_sandbox.v1_assa_movement;
+
 	CREATE TABLE assa_sandbox.v1_assa_movement
 		WITH (
 				format = 'ORC'
