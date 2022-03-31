@@ -5,11 +5,10 @@ IF EXISTS assa_sandbox.v1_assa_movement;
 		WITH (
 				format = 'ORC'
 				,orc_compression = 'ZLIB'
-				,partitioned_by = ARRAY ['sourcefilename', 'company_code','year_of_data']
+				,partitioned_by = ARRAY ['company_code']
 				,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
-				,bucket_count = 25
+				,bucket_count = 10
 				) AS
-
 SELECT v1_assa_movement.policy_number
 	,COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
 			life_number)) AS life_number
@@ -52,9 +51,9 @@ SELECT v1_assa_movement.policy_number
 	,underwriter_loadings
 	,DATE_PARSE(process_time_stamp, '%Y-%m-%d %H:%i:%s') AS process_time_stamp
 	,process_number
+	,year_of_data
 	,sourcefilename
 	,company_code
-	,year_of_data
 FROM "assa-lake".v1_assa_movement
 /* -------------------------------------------------------------------------------------------------------------------------------------------------
    There are cases coming through for company 11 for which there is no exposure in 2003 - 2008, 
@@ -99,41 +98,5 @@ LEFT JOIN (
 	AND c25_life_data.policy_date_of_entry = v1_assa_movement.policy_date_of_entry
 	AND c25_life_data.life_number = v1_assa_movement.life_number
 	AND v1_assa_movement.company_code = 25
-WHERE c11_check.policy_number_z IS NULL;
-
-/* ------------------------------------------------------------------------------------------------------------------------------------------------
-    Next table is the SA85-90 rates
-	----------------------------------------------------------------------------------------------------------------------------------------------- */
-CREATE TABLE assa_sandbox.mortality_sa8590
-	WITH (
-			format = 'ORC'
-			,orc_compression = 'ZLIB'
-			,partitioned_by = ARRAY ['duration']
-			,bucketed_by = ARRAY ['age']
-			,num_buckets = 10
-			)
-
-SELECT age
-	,mortality_rate_qx
-	,force_of_mortality_mux
-	,duration
-FROM "assa-lake".mortality_sa8590;
-
-/* ------------------------------------------------------------------------------------------------------------------------------------------------
-    This creates a table containing parameters for the experience calculation
-	> exposure_end_date : the cutoff date for the exposure calculation
-	----------------------------------------------------------------------------------------------------------------------------------------------- */
-CREATE TABLE assa_sandbox.csi_mort_params
-	WITH (
-			format = 'ORC'
-			,orc_compression = 'ZLIB'
-			,partitioned_by = ARRAY ['param_name']
-			) AS
-
-SELECT *
-FROM (
-	VALUES (
-		'2014-01-01'
-		,'exposure_end_date'
-		)
-	) AS t(param_value, param_name);
+WHERE c11_check.policy_number_z IS NULL 
+AND process_time_stamp != '';
