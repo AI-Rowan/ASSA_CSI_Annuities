@@ -1,5 +1,5 @@
---DROP TABLE IF EXISTS assa_sandbox.assa_exposure;
---
+DROP TABLE IF EXISTS assa_sandbox.assa_exposure;
+
 CREATE TABLE assa_sandbox.assa_exposure
 	WITH (
 			format = 'ORC'
@@ -175,7 +175,7 @@ in the corresponding calendar year so that we can calculate the exposure in life
 -------------------------------------------------------------------------------------------------------*/
 	,exposure_calc AS (
 		SELECT date_diff('year', policy_date_of_entry, policy_anniversary) AS policy_duration
-			,date_diff('day', begin_date, end_date) AS exposure_days
+			,date_diff('day', begin_date, end_date)														 		  AS exposure_days
 			,date_diff('day', date_trunc('year', effective_date_of_change_movement), date_trunc('year', date_add('year', 1, 
 						effective_date_of_change_movement))) AS days_in_year
 			,date_diff('year', date_of_birth, policy_anniversary) AS age_last_at_pa
@@ -185,194 +185,104 @@ in the corresponding calendar year so that we can calculate the exposure in life
 			,exposure_boundary_dates.*
 		FROM exposure_boundary_dates
 		)
-
-SELECT CASE 
-		WHEN calendar_year <= 2006
-			THEN '≤ 2005'
-		ELSE CAST(2 * (calendar_year / 2) AS VARCHAR) || ' - ' || CAST(1 + 2 * (calendar_year / 2) AS VARCHAR)
-			-- Note that 2 * (cy / 2) rounds down to multiple of 2 (integer arithmetic)
-		END AS cy_grouped
-	,CAST(- 1 + 6 * ((calendar_year + 1) / 6) AS VARCHAR) || ' - ' || CAST(4 + 6 * ((calendar_year + 1) / 6) AS VARCHAR
-	) AS cy_grouped2
-	,policy_year
-	,policy_number
-	,life_number
-	,CASE sex_code
-		WHEN 1
-			THEN 'M'
-		WHEN 2
-			THEN 'F'
-		ELSE 'U'
-		END AS sex
-	,CASE smoking_category
-		WHEN 1
-			THEN 'S'
-		WHEN 2
-			THEN 'NS'
-		ELSE 'U'
-		END AS smoking_status
-	,CASE accelerator_marker
-		WHEN 1
-			THEN 'Fully accelerated'
-		WHEN 2
-			THEN 'Partially accelerated'
-		WHEN 3
-			THEN 'No accelerator'
-		ELSE 'Unspecified'
-		END AS accelerator_status
-	,CASE underwriter_loadings
-		WHEN 1
-			THEN 'EM loading 1% - 50%'
-		WHEN 2
-			THEN 'EM loading 51% - 100%'
-		WHEN 3
-			THEN 'EM loading 101% - 150%'
-		WHEN 4
-			THEN 'EM loading 151% - 200%'
-		WHEN 5
-			THEN 'EM loading more than 200%'
-		WHEN 6
-			THEN 'Flat loading < 200 per mille'
-		WHEN 7
-			THEN 'Flat loading > 200 per mille'
-		WHEN 8
-			THEN 'Underwriting exclusion'
-		WHEN 0
-			THEN 'Not Loaded'
-		ELSE 'Invalid code'
-		END AS underwriter_loadings
-	,CASE underwriter_loadings
-		WHEN NULL
-			THEN 'Unspecified'
-		WHEN 0
-			THEN 'Standard Rates'
-		ELSE 'Loaded'
-		END AS loaded_vs_standard
-	,CASE type_of_medical_underwriting
-		WHEN 1
-			THEN 'Medical'
-		WHEN 2
-			THEN 'Non-Medical'
-		ELSE 'Unspecified'
-		END AS type_of_underwriting
-	,preferred_underwriting_class
-	,CASE type_of_assurance
-		WHEN 1
-			THEN 'Term Assurance'
-		WHEN 2
-			THEN 'Retirement Annuities'
-		WHEN 3
-			THEN 'Whole Life'
-		WHEN 4
-			THEN 'Endowment Assurance'
-		ELSE 'Unspecified'
-		END AS type_of_assurance
-	,CASE is_new_generation
-		WHEN 1
-			THEN 'New Gen'
-		WHEN 2
-			THEN 'Not New Gen'
-		ELSE 'Unspecified'
-		END AS is_new_generation
-	,CASE special_offer_marker
-		WHEN 1
-			THEN 'Special Offer'
-		WHEN 2
-			THEN 'Not Special Offer'
-		ELSE 'Unspecified'
-		END AS special_offer_marker
-	,CASE province
-		WHEN 1
-			THEN 'Gauteng'
-		WHEN 2
-			THEN 'Northern Province'
-		WHEN 3
-			THEN 'Mpumalanga'
-		WHEN 4
-			THEN 'North West'
-		WHEN 5
-			THEN 'Kwa-Zulu Natal'
-		WHEN 6
-			THEN 'Eastern Cape'
-		WHEN 7
-			THEN 'Western Cape'
-		WHEN 8
-			THEN 'Northern Cape'
-		WHEN 9
-			THEN 'Free State'
-		ELSE 'Unspecified'
-		END AS province
-	,age_last_at_pa
-	,age_nrst_at_pa
-	,age_last_at_pa + 1 AS age_next_at_pa
-	,age_last_at_jan
-	,age_nrst_at_jan
-	,age_last_at_jan + 1 AS age_next_at_jan
-	,CAST(5 * (age_last_at_pa / 5) AS VARCHAR) || ' - ' || CAST(4 + 5 * (age_last_at_pa / 5) AS VARCHAR) AS age_last_band
-	,CAST(5 * (age_nrst_at_pa / 5) AS VARCHAR) || ' - ' || CAST(4 + 5 * (age_nrst_at_pa / 5) AS VARCHAR) AS age_nrst_band
-	,CAST(5 * ((age_last_at_pa + 1) / 5) AS VARCHAR) || ' - ' || CAST(4 + 5 * ((age_last_at_pa + 1) / 5) AS VARCHAR) 
-	AS age_next_band
-	,policy_date_of_entry
-	,EXTRACT(YEAR FROM policy_date_of_entry) AS issue_year
-	,policy_duration
-	,least(policy_duration, 2) AS duration2
-	,least(policy_duration, 3) AS duration3
-	,least(policy_duration, 5) AS duration5
-	,begin_date
-	,end_date
-	,effective_date_of_change_movement
-	,lpad(movement_code_clean, 3, '0') AS change_in_movement_code
-	,sum_assured_in_rand AS sum_assured
-	,exposure_days
-	,exposure_days / 365.25 AS expyearscen
-	,exposure_days / CAST(days_in_year AS DOUBLE) AS expyearscen_exact
-	,exposure_days / 365.25 * sum_assured_in_rand AS aar_weighted_exposure
-	,exposure_days / CAST(days_in_year AS DOUBLE) AS aar_weighted_exposure_exact
-	,CASE 
-		WHEN movement_code_clean = '30'
-			AND current_termination != 0
-			THEN 1
-		ELSE 0
-		END AS actual_claim_cnt
-	,CASE 
-		WHEN movement_code_clean = '30'
-			AND current_termination != 0
-			THEN sum_assured_in_rand
-		ELSE 0
-		END AS actual_claim_amt
-	,CASE 
-		WHEN movement_code_clean = '30'
-			AND current_termination != 0
-			THEN CASE cause_of_death
-					WHEN 1
-						THEN 'Cancer'
-					WHEN 2
-						THEN 'Cardiac'
-					WHEN 3
-						THEN 'Cerebrovascular'
-					WHEN 4
-						THEN 'Respiratory Disease'
-					WHEN 5
-						THEN 'Accidental / Violent'
-					WHEN 6
-						THEN 'Definitely AIDS'
-					WHEN 7
-						THEN 'Suspected AIDS'
-					WHEN 8
-						THEN 'Multi-Organ failure'
-					WHEN 9
-						THEN 'Other (known, unlisted)'
-					WHEN 10
-						THEN 'Non-specific Non-natural'
-					WHEN 11
-						THEN 'Non-specific Natural'
-					WHEN 0
-						THEN 'Unspecified'
-					ELSE 'Unknown cause code: ' || CAST(cause_of_death AS VARCHAR)
-					END
-		ELSE NULL
-		END AS cause_of_death
-	,calendar_year
-	,company_code
-FROM exposure_calc
-WHERE exposure_days >= 0 AND policy_duration >= 0 -- Looks like company 12 occasionally has something weird going so there is an '010' record before the effective entry date of the policy
+SELECT CASE
+           WHEN calendar_year <= 2006 THEN '≤ 2005'
+           ELSE CAST (2 * (calendar_year / 2) AS VARCHAR) || ' - ' || CAST (1 + 2 * (calendar_year / 2) AS VARCHAR)
+       -- Note that 2 * (cy / 2) rounds down to multiple of 2 (integer arithmetic)
+       END                                                                                                                                                AS cy_grouped
+      ,CAST (-1 + 6 * ((calendar_year + 1) / 6) AS VARCHAR) || ' - ' || CAST (4 + 6 * ((calendar_year + 1) / 6) AS VARCHAR)                               AS cy_grouped2
+      ,policy_year
+      ,policy_number
+      ,life_number
+      ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                         AS sex
+      ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                AS smoking_status
+      ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END    AS accelerator_status
+      ,CASE underwriter_loadings
+           WHEN 1 THEN 'EM loading 1% - 50%'
+           WHEN 2 THEN 'EM loading 51% - 100%'
+           WHEN 3 THEN 'EM loading 101% - 150%'
+           WHEN 4 THEN 'EM loading 151% - 200%'
+           WHEN 5 THEN 'EM loading more than 200%'
+           WHEN 6 THEN 'Flat loading < 200 per mille'
+           WHEN 7 THEN 'Flat loading > 200 per mille'
+           WHEN 8 THEN 'Underwriting exclusion'
+           WHEN 0 THEN 'Not Loaded'
+           ELSE 'Invalid code'
+       END                                                                                                                                                AS underwriter_loadings
+      ,CASE underwriter_loadings WHEN NULL THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                              AS loaded_vs_standard
+      ,CASE type_of_medical_underwriting WHEN 1 THEN 'Medical' WHEN 2 THEN 'Non-Medical' ELSE 'Unspecified' END                                           AS type_of_underwriting
+      ,preferred_underwriting_class
+      ,MOD (preferred_underwriting_class, 10)                                                                                                             AS se_class
+      ,CASE type_of_assurance
+           WHEN 1 THEN 'Term Assurance'
+           WHEN 2 THEN 'Retirement Annuities'
+           WHEN 3 THEN 'Whole Life'
+           WHEN 4 THEN 'Endowment Assurance'
+           ELSE 'Unspecified'
+       END                                                                                                                                                AS type_of_assurance
+      ,CASE is_new_generation WHEN 1 THEN 'New Gen' WHEN 2 THEN 'Not New Gen' ELSE 'Unspecified' END                                                      AS is_new_generation
+      ,CASE special_offer_marker WHEN 1 THEN 'Special Offer' WHEN 2 THEN 'Not Special Offer' ELSE 'Unspecified' END                                       AS special_offer_marker
+      ,CASE province
+           WHEN 1 THEN 'Gauteng'
+           WHEN 2 THEN 'Northern Province'
+           WHEN 3 THEN 'Mpumalanga'
+           WHEN 4 THEN 'North West'
+           WHEN 5 THEN 'Kwa-Zulu Natal'
+           WHEN 6 THEN 'Eastern Cape'
+           WHEN 7 THEN 'Western Cape'
+           WHEN 8 THEN 'Northern Cape'
+           WHEN 9 THEN 'Free State'
+           ELSE 'Unspecified'
+       END                                                                                                                                                AS province
+      ,age_last_at_pa
+      ,age_nrst_at_pa
+      ,age_last_at_pa + 1                                                                                                                                 AS age_next_at_pa
+      ,age_last_at_jan
+      ,age_nrst_at_jan
+      ,age_last_at_jan + 1                                                                                                                                AS age_next_at_jan
+      ,CAST (5 * (age_last_at_pa / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last_at_pa / 5) AS VARCHAR)                                              AS age_last_band
+      ,CAST (5 * (age_nrst_at_pa / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nrst_at_pa / 5) AS VARCHAR)                                              AS age_nrst_band
+      ,CAST (5 * ((age_last_at_pa + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last_at_pa + 1) / 5) AS VARCHAR)                                  AS age_next_band
+      ,policy_date_of_entry
+      ,EXTRACT (YEAR FROM policy_date_of_entry)                                                                                                           AS issue_year
+      ,policy_duration
+      ,LEAST (policy_duration, 2)                                                                                                                         AS duration2
+      ,LEAST (policy_duration, 3)                                                                                                                         AS duration3
+      ,LEAST (policy_duration, 5)                                                                                                                         AS duration5
+      ,begin_date
+      ,end_date
+      ,effective_date_of_change_movement
+      ,LPAD (movement_code_clean, 3, '0')                                                                                                                 AS change_in_movement_code
+      ,sum_assured_in_rand                                                                                                                                AS sum_assured
+      -- We need at least one day of exposure to be associated with each claim record, otherwise standardisation becomes really hard:
+	  -- The CASE WHEN ... END part corresponds to the claim marker calculation for actual_claim_cnt below
+      ,GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 THEN 1 ELSE 0 END)                                      AS exposure_days
+      ,GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 THEN 1 ELSE 0 END) / 365.25                             AS expyearscen
+      ,GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 THEN 1 ELSE 0 END) / CAST (days_in_year AS DOUBLE)      AS expyearscen_exact
+      ,GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 THEN 1 ELSE 0 END) / 365.25 * sum_assured_in_rand       AS aar_weighted_exposure
+      ,  GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 THEN 1 ELSE 0 END)
+       / CAST (days_in_year AS DOUBLE)
+       * sum_assured_in_rand                                                                                                                              AS aar_weighted_exposure_exact
+      ,CASE WHEN movement_code_clean = '30' AND current_termination != 0 THEN 1 ELSE 0 END                                                                AS actual_claim_cnt
+      ,CASE WHEN movement_code_clean = '30' AND current_termination != 0 THEN sum_assured_in_rand ELSE 0 END                                              AS actual_claim_amt
+      ,CASE
+           WHEN movement_code_clean = '30' AND current_termination != 0 THEN CASE cause_of_death
+           WHEN 1 THEN 'Cancer'
+           WHEN 2 THEN 'Cardiac'
+           WHEN 3 THEN 'Cerebrovascular'
+           WHEN 4 THEN 'Respiratory Disease'
+           WHEN 5 THEN 'Accidental / Violent'
+           WHEN 6 THEN 'Definitely AIDS'
+           WHEN 7 THEN 'Suspected AIDS'
+           WHEN 8 THEN 'Multi-Organ failure'
+           WHEN 9 THEN 'Other (known, unlisted)'
+           WHEN 10 THEN 'Non-specific Non-natural'
+           WHEN 11 THEN 'Non-specific Natural'
+           WHEN 0 THEN 'Unspecified'
+           ELSE 'Unknown cause code: ' || CAST (cause_of_death AS VARCHAR)
+       END                                                                                                                                                 ELSE     NULL
+  END       AS     cause_of_death
+      ,calendar_year
+      ,company_code
+  FROM exposure_calc
+ WHERE exposure_days >= 0 AND policy_duration >= 0 -- Looks like company 12 occasionally has something weird going so there is an '010' record before the effective entry date of the policy
