@@ -1,6 +1,6 @@
-DROP TABLE IF EXISTS assa_sandbox.assa_exposure_std;
+DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_expected_std;
 
-CREATE TABLE assa_sandbox.assa_exposure_std
+CREATE TABLE assa_sandbox.assa_new_gen_expected_std
 	WITH (
 			format = 'ORC'
 			,orc_compression = 'ZLIB'
@@ -39,7 +39,7 @@ WITH
                  ,SUM (SUM (expyearscen_exact)) OVER (PARTITION BY rf.se_class) / SUM (SUM (expyearscen_exact)) OVER ()               se_factor
                  ,SUM (SUM (expyearscen_exact)) OVER (PARTITION BY rf.accelerator_status) / SUM (SUM (expyearscen_exact)) OVER ()     accel_factor
              FROM rating_factors rf
-                  LEFT JOIN assa_sandbox.assa_exposure exps
+                  LEFT JOIN assa_sandbox.assa_new_gen_expected exps
                       ON     rf.age_nrst_at_jan = exps.age_nrst_at_jan
                          AND rf.duration5 = exps.duration5
                          AND rf.sex = exps.sex
@@ -95,6 +95,10 @@ SELECT exps.cy_grouped
       ,exps.expyearscen_exact
       ,exps.aar_weighted_exposure
       ,exps.aar_weighted_exposure_exact
+      ,exps.expected_count
+      ,exps.expected_count_exact
+      ,exps.expected_amount
+      ,exps.expected_amount_exact
       ,exps.actual_claim_cnt
       ,exps.actual_claim_amt
       ,exps.cause_of_death
@@ -120,7 +124,7 @@ SELECT exps.cy_grouped
        END                                  exposure_share
       ,exps.calendar_year
       ,exps.company_code
-  FROM assa_sandbox.assa_exposure  exps
+  FROM assa_sandbox.assa_new_gen_expected  exps
        LEFT JOIN standard_factors stds
            ON     exps.sex = stds.sex
               AND exps.age_nrst_at_jan = stds.age_nrst_at_jan

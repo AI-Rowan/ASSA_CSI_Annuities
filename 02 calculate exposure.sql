@@ -1,6 +1,6 @@
-DROP TABLE IF EXISTS assa_sandbox.assa_exposure;
+DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_exposure;
 
-CREATE TABLE assa_sandbox.assa_exposure
+CREATE TABLE assa_sandbox.assa_new_gen_exposure
 	WITH (
 			format = 'ORC'
 			,orc_compression = 'ZLIB'
@@ -9,11 +9,11 @@ CREATE TABLE assa_sandbox.assa_exposure
 			,bucket_count = 25
 			) AS
 /* -------------------------------------------------------------------------------------------------------
-First we calculate a list of all the years that we will have exposure for. 
-Note that we have to calculate each possible combination of calendar year and policy year 
-e.g. 2005 calendar year will be split between 2004 and 2005 policy years
-Easiest to get list of potential policy years and get result of adding 0 and 1 to get calendar years
--------------------------------------------------------------------------------------------------------*/
+	First we calculate a list of all the years that we will have exposure for. 
+	Note that we have to calculate each possible combination of calendar year and policy year 
+	e.g. 2005 calendar year will be split between 2004 and 2005 policy years
+	Easiest to get list of potential policy years and get result of adding 0 and 1 to get calendar years
+  -------------------------------------------------------------------------------------------------------- */
 WITH exposure_years AS (
 		SELECT y.policy_year
 			,y.policy_year + o.offset AS calendar_year
@@ -27,13 +27,13 @@ WITH exposure_years AS (
 				) AS OFFSETS (offset)
 		CROSS JOIN UNNEST(offset) AS o(offset)
 		)
-	/* -------------------------------------------------------------------------------------------------------
-There are cases where there is a termination record (e.g. 30 = death) but new exposure later
-This doesn't make sense unless there is also a reversal record so we need to remove this late exposure
-This CTE looks takes the sum of all "direction_of_movement" entries for prior records with a termination
-I do it this way in order to try pick up reversals (they should make the sum 0)
-We also take the opportunity to check whether the current record is a termination (attempting to allow for reinstatement)
--------------------------------------------------------------------------------------------------------*/
+/* -------------------------------------------------------------------------------------------------------
+	There are cases where there is a termination record (e.g. 30 = death) but new exposure later
+	This doesn't make sense unless there is also a reversal record so we need to remove this late exposure
+	This CTE looks takes the sum of all "direction_of_movement" entries for prior records with a termination
+	I do it this way in order to try pick up reversals (they should make the sum 0)
+	We also take the opportunity to check whether the current record is a termination (attempting to allow for reinstatement)
+  -------------------------------------------------------------------------------------------------------- */
 	,termination_check AS (
 		SELECT sum(CASE 
 					WHEN movement_code_clean IN (
@@ -91,11 +91,11 @@ We also take the opportunity to check whether the current record is a terminatio
 			,v1_assa_movement.*
 		FROM assa_sandbox.v1_assa_movement
 		)
-	/* -------------------------------------------------------------------------------------------------------
-Next we need to find the next movement for this policy so that we know the end of the exposure period
-We cut off at the end of the study period, or if this is a termination stop where we are.
-We also use this step to remove the post-termination exposure that we identified in the last section
--------------------------------------------------------------------------------------------------------*/
+/* -------------------------------------------------------------------------------------------------------
+	Next we need to find the next movement for this policy so that we know the end of the exposure period
+	We cut off at the end of the study period, or if this is a termination stop where we are.
+	We also use this step to remove the post-termination exposure that we identified in the last section
+  -------------------------------------------------------------------------------------------------------- */
 	,calc_next_movement AS (
 		SELECT
 			-- try to find next movement date for this policy
@@ -105,8 +105,8 @@ We also use this step to remove the post-termination exposure that we identified
 					WHEN current_termination != 0
 						THEN effective_date_of_change_movement -- set it to termination date if available, 
 					WHEN EXTRACT(YEAR FROM effective_date_of_change_movement) < EXTRACT(YEAR FROM DATE (param_value)) - 1
-						THEN date_add('day', CAST(date_diff('day', effective_date_of_change_movement, date_parse(CAST(EXTRACT(year FROM 
-													effective_date_of_change_movement) + 1 AS VARCHAR) || '-01-01', '%Y-%m-%d')) / 2.0 AS BIGINT), 
+						THEN date_add('day', CAST(date_diff('day', effective_date_of_change_movement, from_iso8601_date(CAST(EXTRACT(year FROM 
+													effective_date_of_change_movement) + 1 AS VARCHAR) || '-01-01')) / 2.0 AS BIGINT), 
 								effective_date_of_change_movement)
 							-- or assume termination half way through remainder of year
 					ELSE DATE (param_value)
@@ -129,13 +129,13 @@ We also use this step to remove the post-termination exposure that we identified
 				OR COALESCE(prior_claim, 0) < 0
 				)
 		)
-	/* -------------------------------------------------------------------------------------------------------
-Now that we have the known end date, we need to split into individual calendar and policy years.
-This is necessary because of cases where there is no renewal record in a given calendar year
-We join each record to the policy years from exposure_years that fall between this movement and the next 
-Each policy year has two calendar years associated with it, so this will normally create multiple records
-We do it that way so that we can split each calendar year into its constituent policy years
--------------------------------------------------------------------------------------------------------*/
+/* -------------------------------------------------------------------------------------------------------
+	Now that we have the known end date, we need to split into individual calendar and policy years.
+	This is necessary because of cases where there is no renewal record in a given calendar year
+	We join each record to the policy years from exposure_years that fall between this movement and the next 
+	Each policy year has two calendar years associated with it, so this will normally create multiple records
+	We do it that way so that we can split each calendar year into its constituent policy years
+  -------------------------------------------------------------------------------------------------------- */
 	,create_all_years AS (
 		SELECT exposure_years.*
 			,date_add('year', policy_year - EXTRACT(year FROM policy_date_of_entry), policy_date_of_entry) AS policy_anniversary
@@ -147,17 +147,17 @@ We do it that way so that we can split each calendar year into its constituent p
 			AND exposure_years.calendar_year <= COALESCE(EXTRACT(YEAR FROM GREATEST(date_add('day', - 1, next_movement), effective_date_of_change_movement)), 
 				9999)
 		)
-	/* -------------------------------------------------------------------------------------------------------
-Now we filter some of the newly created date records and calculate beginning and end dates
-to ensure that we have no overlapping exposure
-A reminder that we've basically made sure we have (at least) two records for each year:
-** Before policy anniversary
-** After policy anniversary 
-Any existing records for each year would have effectively been duplicated,
-so we need to make sure to only keep the right records 
-Then we set the beginning date to the latest of the prior policy anniversary, the start of this year, or the date of this movement
-End date becomes earliest of next policy anniversary, end of this year, or date of next movement
--------------------------------------------------------------------------------------------------------*/
+/* -------------------------------------------------------------------------------------------------------
+	Now we filter some of the newly created date records and calculate beginning and end dates
+	to ensure that we have no overlapping exposure
+	A reminder that we've basically made sure we have (at least) two records for each year:
+	** Before policy anniversary
+	** After policy anniversary 
+	Any existing records for each year would have effectively been duplicated,
+	so we need to make sure to only keep the right records 
+	Then we set the beginning date to the latest of the prior policy anniversary, the start of this year, or the date of this movement
+	End date becomes earliest of next policy anniversary, end of this year, or date of next movement
+  -------------------------------------------------------------------------------------------------------- */
 	,exposure_boundary_dates AS (
 		SELECT GREATEST(effective_date_of_change_movement, policy_anniversary, date_parse(CAST(calendar_year AS VARCHAR) || '-01-01', '%Y-%m-%d')) AS begin_date
 			,LEAST(next_movement, next_policy_anniversary, date_parse(CAST(calendar_year + 1 AS VARCHAR) || '-01-01', '%Y-%m-%d')) AS end_date
@@ -169,10 +169,10 @@ End date becomes earliest of next policy anniversary, end of this year, or date 
 				)
 			OR (policy_year >= calendar_year)
 		)
-	/* -------------------------------------------------------------------------------------------------------
-Here we finally calculate the number of days applicable for the given record, and the number of days 
-in the corresponding calendar year so that we can calculate the exposure in life years
--------------------------------------------------------------------------------------------------------*/
+/* -------------------------------------------------------------------------------------------------------
+	Here we finally calculate the number of days applicable for the given record, and the number of days 
+	in the corresponding calendar year so that we can calculate the exposure in life years
+  -------------------------------------------------------------------------------------------------------- */
 	,exposure_calc AS (
 		SELECT date_diff('year', policy_date_of_entry, policy_anniversary) AS policy_duration
 			,date_diff('day', begin_date, end_date)														 		  AS exposure_days
@@ -286,3 +286,99 @@ SELECT CASE
       ,company_code
   FROM exposure_calc
  WHERE exposure_days >= 0 AND policy_duration >= 0 -- Looks like company 12 occasionally has something weird going so there is an '010' record before the effective entry date of the policy
+
+/* ------------------------------------------------------------------------------------------------------------------------------------------------
+    Now we convert company 18's data to a format consistent to be appended to the rest
+   ----------------------------------------------------------------------------------------------------------------------------------------------- */
+DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_exposure_18;
+
+CREATE TABLE assa_sandbox.assa_new_gen_exposure_18
+	WITH (
+			format = 'ORC'
+			,orc_compression = 'ZLIB'
+			,partitioned_by = ARRAY ['calendar_year', 'company_code']
+			,bucketed_by = ARRAY ['policy_year','sex']
+			,bucket_count = 25
+			) AS
+SELECT CASE
+           WHEN year_of_invest <= 2006 THEN '≤ 2005'
+           ELSE CAST (2 * (year_of_invest / 2) AS VARCHAR) || ' - ' || CAST (1 + 2 * (year_of_invest / 2) AS VARCHAR)
+       -- Note that 2 * (cy / 2) rounds down to multiple of 2 (integer arithmetic)
+       END                                                                                                                                                AS cy_grouped
+      ,CAST (-1 + 6 * ((year_of_invest + 1) / 6) AS VARCHAR) || ' - ' || CAST (4 + 6 * ((year_of_invest + 1) / 6) AS VARCHAR)                             AS cy_grouped2
+      ,year_of_invest                                                                                                                                     AS policy_year
+      ,CAST(NULL AS VARCHAR)                                                                                                                              AS policy_number
+      ,CAST(NULL AS VARCHAR)                                                                                                                              AS life_number
+      ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                         AS sex
+      ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                AS smoking_status
+      ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END    AS accelerator_status
+      ,CASE underwriter_loadings
+           WHEN 1 THEN 'EM loading 1% - 50%'
+           WHEN 2 THEN 'EM loading 51% - 100%'
+           WHEN 3 THEN 'EM loading 101% - 150%'
+           WHEN 4 THEN 'EM loading 151% - 200%'
+           WHEN 5 THEN 'EM loading more than 200%'
+           WHEN 6 THEN 'Flat loading < 200 per mille'
+           WHEN 7 THEN 'Flat loading > 200 per mille'
+           WHEN 8 THEN 'Underwriting exclusion'
+           WHEN 0 THEN 'Not Loaded'
+           ELSE 'Invalid code'
+       END                                                                                                                                                AS underwriter_loadings
+      ,CASE underwriter_loadings WHEN NULL THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                              AS loaded_vs_standard
+      ,CASE type_of_medical_underwriting WHEN 1 THEN 'Medical' WHEN 2 THEN 'Non-Medical' ELSE 'Unspecified' END                                           AS type_of_underwriting
+      ,preferred_underwriting_class
+      ,MOD (preferred_underwriting_class, 10)                                                                                                             AS se_class
+      ,CASE type_of_assurance
+           WHEN 1 THEN 'Term Assurance'
+           WHEN 2 THEN 'Retirement Annuities'
+           WHEN 3 THEN 'Whole Life'
+           WHEN 4 THEN 'Endowment Assurance'
+           ELSE 'Unspecified'
+       END                                                                                                                                                AS type_of_assurance
+      ,CASE is_new_generation WHEN 1 THEN 'New Gen' WHEN 2 THEN 'Not New Gen' ELSE 'Unspecified' END                                                      AS is_new_generation
+      ,CASE special_offer_marker WHEN 1 THEN 'Special Offer' WHEN 2 THEN 'Not Special Offer' ELSE 'Unspecified' END                                       AS special_offer_marker
+      ,CASE province
+           WHEN 1 THEN 'Gauteng'
+           WHEN 2 THEN 'Northern Province'
+           WHEN 3 THEN 'Mpumalanga'
+           WHEN 4 THEN 'North West'
+           WHEN 5 THEN 'Kwa-Zulu Natal'
+           WHEN 6 THEN 'Eastern Cape'
+           WHEN 7 THEN 'Western Cape'
+           WHEN 8 THEN 'Northern Cape'
+           WHEN 9 THEN 'Free State'
+           ELSE 'Unspecified'
+       END                                                                                                                                                AS province
+      ,age_last                                                                                                                                           AS age_last_at_pa
+      ,age_nearest                                                                                                                                        AS age_nrst_at_pa
+      ,age_last + 1                                                                                                                                       AS age_next_at_pa
+      ,age_last                                                                                                                                           AS age_last_at_jan
+      ,age_nearest                                                                                                                                        AS age_nrst_at_jan
+      ,age_last + 1                                                                                                                                       AS age_next_at_jan
+      ,CAST (5 * (age_last / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last / 5) AS VARCHAR)                                                          AS age_last_band
+      ,CAST (5 * (age_nearest / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nearest / 5) AS VARCHAR)                                                    AS age_nrst_band
+      ,CAST (5 * ((age_last + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last + 1) / 5) AS VARCHAR)                                              AS age_next_band
+      ,CAST(NULL AS DATE)                                                                                                                                 AS policy_date_of_entry
+      ,year_of_invest - duration                                                                                                                          AS issue_year
+      ,duration                                                                                                                                           AS policy_duration
+      ,LEAST (duration, 2)                                                                                                                                AS duration2
+      ,LEAST (duration, 3)                                                                                                                                AS duration3
+      ,LEAST (duration, 5)                                                                                                                                AS duration5
+      ,from_iso8601_date (CAST (year_of_invest AS VARCHAR) || '-01-01')                                                                                   AS begin_date
+      ,from_iso8601_date (CAST (year_of_invest AS VARCHAR) || '-12-31')                                                                                   AS end_date
+      ,CAST(NULL AS DATE)                                                                                                                                 AS effective_date_of_change_movement
+      ,'999'                                                                                                                                              AS change_in_movement_code
+      ,CAST(NULL AS DOUBLE)                                                                                                                               AS sum_assured
+      ,exp_days_cen                                                                                                                                       AS exposure_days
+      ,exp_years_cen                                                                                                                                      AS expyearscen
+      ,exp_years_cen                                                                                                                                      AS expyearscen_exact
+      ,sa_exposure                                                                                                                                        AS aar_weighted_exposure
+      ,sa_exposure                                                                                                                                        AS aar_weighted_exposure_exact
+      ,no_of_deaths                                                                                                                                       AS actual_claim_cnt
+      ,sa_no_of_deaths                                                                                                                                    AS actual_claim_amt
+      ,'Unspecified'                                                                                                                                      AS cause_of_death
+      ,year_of_invest                                                                                                                                     AS calendar_year
+      ,company_code
+  FROM "assa-lake".v1_mortality_liberty
+ INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
+ WHERE exp_days_cen >= 0 AND duration >= 0 AND year_of_invest < EXTRACT(YEAR FROM DATE(param_value));

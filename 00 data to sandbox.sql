@@ -1,13 +1,30 @@
+/* ---------------------------------------------------------------------------------------------------------------------
+	Given multiple versions of data submissions that have been made, we need to be able to tell the system
+	which are old versions that should be ignored
+   --------------------------------------------------------------------------------------------------------------------- */
+
+DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_data_exclusions;
+
+CREATE TABLE assa_sandbox.assa_new_gen_data_exclusions (company_code, year_of_data, data_import_batch) AS 
+SELECT * FROM 
+	(VALUES (25, NULL, '2019-12-04'))
+
+
+/* ---------------------------------------------------------------------------------------------------------------------
+	We create the exposure table based on the data provided by most companies (all except company 18)
+	There are a number of assumptions made to clean up the data
+   --------------------------------------------------------------------------------------------------------------------- */
+
 DROP TABLE IF EXISTS assa_sandbox.v1_assa_movement;
 
-	CREATE TABLE assa_sandbox.v1_assa_movement
-		WITH (
-				format = 'ORC'
-				,orc_compression = 'ZLIB'
-				,partitioned_by = ARRAY ['sourcefilename', 'company_code','year_of_data']
-				,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
-				,bucket_count = 25
-				) AS
+CREATE TABLE assa_sandbox.v1_assa_movement
+	WITH (
+			format = 'ORC'
+			,orc_compression = 'ZLIB'
+			,partitioned_by = ARRAY ['sourcefilename', 'company_code','year_of_data']
+			,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
+			,bucket_count = 25
+			) AS
 SELECT v1_assa_movement.policy_number
 	,COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
 			life_number)) AS life_number
@@ -102,7 +119,7 @@ WHERE c11_check.policy_number_z IS NULL
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     Next table is the SA85-90 rates
-	----------------------------------------------------------------------------------------------------------------------------------------------- */
+   ----------------------------------------------------------------------------------------------------------------------------------------------- */
 CREATE TABLE assa_sandbox.mortality_sa8590
 	WITH (
 			format = 'ORC'
@@ -111,7 +128,7 @@ CREATE TABLE assa_sandbox.mortality_sa8590
 			,bucketed_by = ARRAY ['age']
 			,num_buckets = 10
 			)
-
+AS
 SELECT age
 	,mortality_rate_qx
 	,force_of_mortality_mux
