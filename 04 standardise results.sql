@@ -13,17 +13,17 @@ WITH
     AS
         (SELECT *
            FROM (SELECT DISTINCT age_nrst_at_jan
-                   FROM assa_sandbox.assa_exposure)
+                   FROM assa_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT duration5
-                   FROM assa_sandbox.assa_exposure)
+                   FROM assa_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT sex
-                   FROM assa_sandbox.assa_exposure)
+                   FROM assa_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT smoking_status
-                   FROM assa_sandbox.assa_exposure)
+                   FROM assa_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT se_class
-                   FROM assa_sandbox.assa_exposure)
+                   FROM assa_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT accelerator_status
-                   FROM assa_sandbox.assa_exposure)),
+                   FROM assa_sandbox.assa_new_gen_expected)),
     standard_factors
     AS
         (  SELECT rf.age_nrst_at_jan
@@ -39,6 +39,7 @@ WITH
                  ,SUM (SUM (expyearscen_exact)) OVER (PARTITION BY rf.se_class) / SUM (SUM (expyearscen_exact)) OVER ()               se_factor
                  ,SUM (SUM (expyearscen_exact)) OVER (PARTITION BY rf.accelerator_status) / SUM (SUM (expyearscen_exact)) OVER ()     accel_factor
              FROM rating_factors rf
+                  INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'standard_year'
                   LEFT JOIN assa_sandbox.assa_new_gen_expected exps
                       ON     rf.age_nrst_at_jan = exps.age_nrst_at_jan
                          AND rf.duration5 = exps.duration5
@@ -46,7 +47,7 @@ WITH
                          AND rf.smoking_status = exps.smoking_status
                          AND rf.se_class = exps.se_class
                          AND rf.accelerator_status = exps.accelerator_status
-                         AND exps.calendar_year = 2013
+                         AND exps.calendar_year = CAST(csi_mort_params.param_value AS BIGINT)
          GROUP BY rf.age_nrst_at_jan
                  ,rf.duration5
                  ,rf.sex

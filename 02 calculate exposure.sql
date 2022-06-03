@@ -111,12 +111,9 @@ WITH exposure_years AS (
 							-- or assume termination half way through remainder of year
 					ELSE DATE (param_value)
 						-- or end of investigation period if this is last full year, 
-					END) OVER (
-				PARTITION BY company_code
-				,policy_number
-				,life_number ORDER BY effective_date_of_change_movement
-					,movementcounter
-				) AS next_movement
+					END) 
+					OVER (PARTITION BY company_code, policy_number, life_number ORDER BY effective_date_of_change_movement, movementcounter) AS next_movement
+			,DATE (csi_mort_params.param_value)																								 AS study_end_date
 			,termination_check.*
 		FROM termination_check
 		INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
@@ -183,7 +180,7 @@ WITH exposure_years AS (
 			,date_diff('year', date_of_birth, date_parse(CAST(calendar_year AS VARCHAR) || '-01-01', '%Y-%m-%d')) AS age_last_at_jan
 			,date_diff('year', date_of_birth, date_parse(CAST(calendar_year AS VARCHAR) || '-07-01', '%Y-%m-%d')) AS age_nrst_at_jan
 			,exposure_boundary_dates.*
-		FROM exposure_boundary_dates
+		FROM exposure_boundary_dates WHERE end_date <= study_end_date AND begin_date < study_end_date
 		)
 SELECT CASE
            WHEN calendar_year <= 2006 THEN '≤ 2005'
@@ -285,7 +282,7 @@ SELECT CASE
       ,calendar_year
       ,company_code
   FROM exposure_calc
- WHERE exposure_days >= 0 AND policy_duration >= 0 -- Looks like company 12 occasionally has something weird going so there is an '010' record before the effective entry date of the policy
+ WHERE exposure_days >= 0 AND policy_duration >= 0; -- Looks like company 12 occasionally has something weird going so there is an '010' record before the effective entry date of the policy
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     Now we convert company 18's data to a format consistent to be appended to the rest
@@ -300,6 +297,21 @@ CREATE TABLE assa_sandbox.assa_new_gen_exposure_18
 			,bucketed_by = ARRAY ['policy_year','sex']
 			,bucket_count = 25
 			) AS
+WITH
+    age_offsets(offset)
+    AS
+        (SELECT 0
+         UNION ALL
+         SELECT 1),
+    ages_fix
+    AS
+        (SELECT lib.*, age_last AS age_last_fixed, age_last + age_offsets.offset AS age_nearest_fixed
+           FROM "assa-lake".v1_mortality_liberty lib, age_offsets
+          WHERE age_nearest IS NULL
+         UNION ALL
+         SELECT lib.*, age_nearest - age_offsets.offset AS age_last_fixed, age_nearest AS age_nearest_fixed
+           FROM "assa-lake".v1_mortality_liberty lib, age_offsets
+          WHERE age_last IS NULL)
 SELECT CASE
            WHEN year_of_invest <= 2006 THEN '≤ 2005'
            ELSE CAST (2 * (year_of_invest / 2) AS VARCHAR) || ' - ' || CAST (1 + 2 * (year_of_invest / 2) AS VARCHAR)
@@ -349,15 +361,15 @@ SELECT CASE
            WHEN 9 THEN 'Free State'
            ELSE 'Unspecified'
        END                                                                                                                                                AS province
-      ,age_last                                                                                                                                           AS age_last_at_pa
-      ,age_nearest                                                                                                                                        AS age_nrst_at_pa
-      ,age_last + 1                                                                                                                                       AS age_next_at_pa
-      ,age_last                                                                                                                                           AS age_last_at_jan
-      ,age_nearest                                                                                                                                        AS age_nrst_at_jan
-      ,age_last + 1                                                                                                                                       AS age_next_at_jan
-      ,CAST (5 * (age_last / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last / 5) AS VARCHAR)                                                          AS age_last_band
-      ,CAST (5 * (age_nearest / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nearest / 5) AS VARCHAR)                                                    AS age_nrst_band
-      ,CAST (5 * ((age_last + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last + 1) / 5) AS VARCHAR)                                              AS age_next_band
+      ,age_last_fixed                                                                                                                                     AS age_last_at_pa
+      ,age_nearest_fixed                                                                                                                                  AS age_nrst_at_pa
+      ,age_last_fixed + 1                                                                                                                                 AS age_next_at_pa
+      ,age_last_fixed                                                                                                                                     AS age_last_at_jan
+      ,age_nearest_fixed                                                                                                                                  AS age_nrst_at_jan
+      ,age_last_fixed + 1                                                                                                                                 AS age_next_at_jan
+      ,CAST (5 * (age_last_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last_fixed / 5) AS VARCHAR)                                              AS age_last_band
+      ,CAST (5 * (age_nearest_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nearest_fixed / 5) AS VARCHAR)                                        AS age_nrst_band
+      ,CAST (5 * ((age_last_fixed + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last_fixed + 1) / 5) AS VARCHAR)                                  AS age_next_band
       ,CAST(NULL AS DATE)                                                                                                                                 AS policy_date_of_entry
       ,year_of_invest - duration                                                                                                                          AS issue_year
       ,duration                                                                                                                                           AS policy_duration
@@ -369,16 +381,16 @@ SELECT CASE
       ,CAST(NULL AS DATE)                                                                                                                                 AS effective_date_of_change_movement
       ,'999'                                                                                                                                              AS change_in_movement_code
       ,CAST(NULL AS DOUBLE)                                                                                                                               AS sum_assured
-      ,exp_days_cen                                                                                                                                       AS exposure_days
-      ,exp_years_cen                                                                                                                                      AS expyearscen
-      ,exp_years_cen                                                                                                                                      AS expyearscen_exact
-      ,sa_exposure                                                                                                                                        AS aar_weighted_exposure
-      ,sa_exposure                                                                                                                                        AS aar_weighted_exposure_exact
-      ,no_of_deaths                                                                                                                                       AS actual_claim_cnt
-      ,sa_no_of_deaths                                                                                                                                    AS actual_claim_amt
+      ,exp_days_cen / 2.0                                                                                                                                 AS exposure_days
+      ,exp_years_cen / 2.0                                                                                                                                AS expyearscen
+      ,exp_years_cen / 2.0                                                                                                                                AS expyearscen_exact
+      ,sa_exposure / 2.0                                                                                                                                  AS aar_weighted_exposure
+      ,sa_exposure / 2.0                                                                                                                                  AS aar_weighted_exposure_exact
+      ,no_of_deaths / 2.0                                                                                                                                 AS actual_claim_cnt
+      ,sa_no_of_deaths / 2.0                                                                                                                              AS actual_claim_amt
       ,'Unspecified'                                                                                                                                      AS cause_of_death
       ,year_of_invest                                                                                                                                     AS calendar_year
       ,company_code
-  FROM "assa-lake".v1_mortality_liberty
+  FROM ages_fix
  INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
- WHERE exp_days_cen >= 0 AND duration >= 0 AND year_of_invest < EXTRACT(YEAR FROM DATE(param_value));
+ WHERE exp_days_cen >= 0 AND duration >= 0 AND year_of_invest < EXTRACT(YEAR FROM DATE(param_value)) AND is_new_generation = 1;

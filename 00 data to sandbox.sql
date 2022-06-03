@@ -7,7 +7,8 @@ DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_data_exclusions;
 
 CREATE TABLE assa_sandbox.assa_new_gen_data_exclusions (company_code, year_of_data, data_import_batch) AS 
 SELECT * FROM 
-	(VALUES (25, NULL, '2019-12-04'))
+	(VALUES (25, CAST(NULL AS VARCHAR), '2019-12-04'),
+			(6, 'COMBINED_outfile_old_and_new_gen_6_2014.csv', '2020-05-15')) AS t(company_code, filename, data_import_batch)
 
 
 /* ---------------------------------------------------------------------------------------------------------------------
@@ -26,8 +27,10 @@ CREATE TABLE assa_sandbox.v1_assa_movement
 			,bucket_count = 25
 			) AS
 SELECT v1_assa_movement.policy_number
-	,COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
-			life_number)) AS life_number
+	,/*COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
+			life_number)) AS life_number*/
+	 COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
+			life_number) AS life_number
 	,change_in_movement_code
 	,CASE 
 		WHEN TRIM(change_in_movement_code) IN (
@@ -53,7 +56,8 @@ SELECT v1_assa_movement.policy_number
 	,sum_assured_in_rand_after_movement
 	,cause_of_death
 	,DATE (v1_assa_movement.policy_date_of_entry) AS policy_date_of_entry
-	,DATE (COALESCE(c25_life_data.dob_to_use, v1_assa_movement.date_of_birth)) AS date_of_birth
+	--,DATE (COALESCE(c25_life_data.dob_to_use, v1_assa_movement.date_of_birth)) AS date_of_birth
+	,DATE (v1_assa_movement.date_of_birth) AS date_of_birth
 	,sum_assured_in_rand
 	,sex_code
 	,type_of_assurance
@@ -68,9 +72,12 @@ SELECT v1_assa_movement.policy_number
 	,DATE_PARSE(process_time_stamp, '%Y-%m-%d %H:%i:%s') AS process_time_stamp
 	,process_number
 	,sourcefilename
-	,company_code
+	,v1_assa_movement.company_code
 	,year_of_data
 FROM "assa-lake".v1_assa_movement
+LEFT JOIN assa_sandbox.assa_new_gen_data_exclusions excl ON v1_assa_movement.company_code = excl.company_code
+	 	  AND v1_assa_movement.sourcefilename = COALESCE(excl.filename, v1_assa_movement.sourcefilename)										
+		  AND v1_assa_movement.data_import_batch = excl.data_import_batch
 /* -------------------------------------------------------------------------------------------------------------------------------------------------
    There are cases coming through for company 11 for which there is no exposure in 2003 - 2008, 
    but then suddenly exposure in 2009-2011 despite the policies being issued prior to 2003.
@@ -93,7 +100,7 @@ LEFT JOIN (
    Prior to that the DOBs were also wrong. 
    Here we try to correct as far as we can by trying to calculate a uniquely identifiable life number and getting the latest DOB
    ------------------------------------------------------------------------------------------------------------------------------------------------- */
-LEFT JOIN (
+/*LEFT JOIN (
 	SELECT DISTINCT policy_number
 		,life_number
 		,date_of_birth
@@ -113,9 +120,10 @@ LEFT JOIN (
 	AND c25_life_data.date_of_birth = v1_assa_movement.date_of_birth
 	AND c25_life_data.policy_date_of_entry = v1_assa_movement.policy_date_of_entry
 	AND c25_life_data.life_number = v1_assa_movement.life_number
-	AND v1_assa_movement.company_code = 25
+	AND v1_assa_movement.company_code = 25*/
 WHERE c11_check.policy_number_z IS NULL
-  AND is_new_generation = 1;
+  AND is_new_generation = 1
+  AND excl.data_import_batch IS NULL;
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     Next table is the SA85-90 rates
@@ -126,7 +134,7 @@ CREATE TABLE assa_sandbox.mortality_sa8590
 			,orc_compression = 'ZLIB'
 			,partitioned_by = ARRAY ['duration']
 			,bucketed_by = ARRAY ['age']
-			,num_buckets = 10
+			,bucket_count = 10
 			)
 AS
 SELECT age
@@ -139,6 +147,8 @@ FROM "assa-lake".mortality_sa8590;
     This creates a table containing parameters for the experience calculation
 	> exposure_end_date : the cutoff date for the exposure calculation
 	----------------------------------------------------------------------------------------------------------------------------------------------- */
+DROP TABLE IF EXISTS assa_sandbox.csi_mort_params;
+
 CREATE TABLE assa_sandbox.csi_mort_params
 	WITH (
 			format = 'ORC'
@@ -149,7 +159,11 @@ CREATE TABLE assa_sandbox.csi_mort_params
 SELECT *
 FROM (
 	VALUES (
-		'2014-01-01'
+		'2017-01-01'
 		,'exposure_end_date'
+		),
+		(
+		'2013',
+		'standard_year'
 		)
 	) AS t(param_value, param_name);

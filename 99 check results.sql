@@ -72,3 +72,10 @@ GROUP BY company_code
 	,year_of_data
 ORDER BY company_code
 	,year_of_data
+
+-- Exposure Check 2
+select company_code, year_of_data, status, count(*) from (
+select company_code, year_of_data , policy_number, life_number, min(case when change_in_movement_code = '00' then '0NB' when change_in_movement_code IN ('30','43','44','50') then '1TERM' else '2IF' end) status 
+from assa_sandbox.v1_assa_movement 
+group by company_code, year_of_data, policy_number, life_number)
+group by company_code, year_of_data, status

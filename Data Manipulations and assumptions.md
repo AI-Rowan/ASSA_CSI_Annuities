@@ -7,9 +7,8 @@ These apply to companies other than 18
 * Clean up bad movement codes such as `X0`, `XNULL`, `XXXX` etc. These are assumed to indicate new business (code `000`). Although the spec uses three digit movement codes, internally the SQL only keeps the last two digits.
 * For movement code `010` (new calendar year on existing policy), movement dates of 31-Dec are moved to 1-Jan.
 * Company 11 - certain policies issued prior to 2003 have no exposure before 2009, but then suddenly appear. These are assumed to be errors and removed.
-* Company 25 - life numbers and dates of birth changed around 2012. It was assumed that the suffix part of the life number remained consistent, although there are some inconsistencies
-* Company 25 - changes to data format in new New Gen files!?!?!
-* 
+* Company 25 - confirming issues with changes in policy/life number formats and preferred underwriting classes.
+* Certain datafiles that appear to be errors are excluded (old uploads for company 25, one version of 2014 data for company 6)
 
 # 02 calculate exposure
 
@@ -39,7 +38,10 @@ The movement records provided are usually pretty messy, with backdated, simultan
 
 ## Company 18:
 
-* Used the provided age_last and age_nearest for both age as at 1 Jan and age as at PA.
+* Only age last provided prior to 2013, and only age nearest provided from 2013. To try to fix this we duplicate each record, with half of the exposure, and calculate the two possible ages associated with each provided age. 
+  * For example an `age_last` of 40 is split into two records with `age_nearest`s of 40 and 41.
+  * An `age_nearest` of 30 is split into two records with `age_last`s of 29 and 30.
+* Used the above calculated age_last and age_nearest for both age as at 1 Jan and age as at PA. Could possibly split yet again, but that seems to be getting too complicated
 * Used exposure figures provided for both exact and '365.25 days in year exposure'
 * Treated sa_exposure as if exposure was central exposed to risk
 * All claims labeled as Unspecified cause
