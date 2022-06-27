@@ -10,6 +10,9 @@ These apply to companies other than 18
 * Company 25 - confirming issues with changes in policy/life number formats and preferred underwriting classes.
 * Certain datafiles that appear to be errors are excluded (old uploads for company 25, one version of 2014 data for company 6)
 
+Outstanding issues:
+* Something wrong with exposure for company 6 in 2013
+
 # 02 calculate exposure
 
 ## Companies other than 18:
