@@ -26,7 +26,12 @@ CREATE TABLE assa_sandbox.v1_assa_movement
 			,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
 			,bucket_count = 25
 			) AS
-SELECT v1_assa_movement.policy_number
+SELECT 
+   CASE 
+    WHEN v1_assa_movement.company_code = 6 AND v1_assa_movement.year_of_data <= 2013 
+      THEN COALESCE(co6_pn_mappings.policy_number, v1_assa_movement.policy_number) 
+    ELSE v1_assa_movement.policy_number 
+    END AS policy_number
 	,/*COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
 			life_number)) AS life_number*/
 	 COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
@@ -96,9 +101,18 @@ LEFT JOIN (
 	) AS c11_check ON c11_check.company_code_z = v1_assa_movement.company_code
 	AND c11_check.policy_number_z = v1_assa_movement.policy_number
 /* -------------------------------------------------------------------------------------------------------------------------------------------------
+   Company 6 changed admin systems in 2014, and the format of their policy numbers changed with it
+   We use a mapping table provided by them to convert old policy numbers to new format
+   Note that mappings only exist for policies that were inforce both before and after the changeover
+   ------------------------------------------------------------------------------------------------------------------------------------------------- */
+LEFT JOIN "assa-lake".v1_co6_policy_number_mapping co6_pn_mappings
+  ON CAST(co6_pn_mappings.mapped_policy_number AS VARCHAR) = v1_assa_movement.policy_number 
+     AND v1_assa_movement.company_code = 6
+/* -------------------------------------------------------------------------------------------------------------------------------------------------
    For company 25 the format of the life numbers changed around 2012
    Prior to that the DOBs were also wrong. 
    Here we try to correct as far as we can by trying to calculate a uniquely identifiable life number and getting the latest DOB
+   UPDATE: This seems to have been corrected in newer version of data so have disabled 
    ------------------------------------------------------------------------------------------------------------------------------------------------- */
 /*LEFT JOIN (
 	SELECT DISTINCT policy_number

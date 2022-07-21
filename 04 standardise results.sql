@@ -114,7 +114,7 @@ SELECT exps.cy_grouped
            THEN
                0
            ELSE
-                 exps.expyearscen_exact
+                 1
                / SUM (exps.expyearscen_exact)
                      OVER (PARTITION BY exps.sex
                                        ,exps.age_nrst_at_jan
@@ -123,6 +123,14 @@ SELECT exps.cy_grouped
                                        ,exps.se_class
                                        ,exps.accelerator_status)
        END                                  exposure_share
+      ,COUNT (*)
+            OVER (PARTITION BY exps.sex
+                            ,exps.age_nrst_at_jan
+                            ,exps.duration5
+                            ,exps.smoking_status
+                            ,exps.se_class
+                            ,exps.accelerator_status) 
+                                            cell_size
       ,exps.calendar_year
       ,exps.company_code
   FROM assa_sandbox.assa_new_gen_expected  exps
@@ -133,3 +141,5 @@ SELECT exps.cy_grouped
               AND exps.smoking_status = stds.smoking_status
               AND exps.se_class = stds.se_class
               AND exps.accelerator_status = stds.accelerator_status;
+
+
