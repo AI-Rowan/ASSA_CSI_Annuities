@@ -26,6 +26,11 @@ CREATE TABLE assa_sandbox.v1_assa_movement
 			,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
 			,bucket_count = 25
 			) AS
+WITH dib_to_use AS (
+	SELECT company_code, year_of_data, is_new_generation, max(data_import_batch) as dib_to_use 
+	FROM "assa-lake".v1_assa_movement 
+	GROUP BY company_code, year_of_data, is_new_generation
+)			
 SELECT 
    CASE 
     WHEN v1_assa_movement.company_code = 6 AND v1_assa_movement.year_of_data <= 2013 
@@ -71,18 +76,22 @@ SELECT
 	,accelerator_marker
 	,province
 	,preferred_underwriting_class
-	,is_new_generation
+	,v1_assa_movement.is_new_generation
 	,special_offer_marker
 	,underwriter_loadings
 	,DATE_PARSE(process_time_stamp, '%Y-%m-%d %H:%i:%s') AS process_time_stamp
 	,process_number
 	,sourcefilename
 	,v1_assa_movement.company_code
-	,year_of_data
+	,v1_assa_movement.year_of_data
 FROM "assa-lake".v1_assa_movement
-LEFT JOIN assa_sandbox.assa_new_gen_data_exclusions excl ON v1_assa_movement.company_code = excl.company_code
+INNER JOIN dib_to_use ON v1_assa_movement.year_of_data = dib_to_use.year_of_data
+		  AND v1_assa_movement.company_code = dib_to_use.company_code
+		  AND v1_assa_movement.data_import_batch = dib_to_use.dib_to_use	
+		  AND v1_assa_movement.is_new_generation = dib_to_use.is_new_generation
+/*LEFT JOIN assa_sandbox.assa_new_gen_data_exclusions excl ON v1_assa_movement.company_code = excl.company_code
 	 	  AND v1_assa_movement.sourcefilename = COALESCE(excl.filename, v1_assa_movement.sourcefilename)										
-		  AND v1_assa_movement.data_import_batch = excl.data_import_batch
+		  AND v1_assa_movement.data_import_batch = excl.data_import_batch*/
 /* -------------------------------------------------------------------------------------------------------------------------------------------------
    There are cases coming through for company 11 for which there is no exposure in 2003 - 2008, 
    but then suddenly exposure in 2009-2011 despite the policies being issued prior to 2003.
@@ -136,8 +145,9 @@ LEFT JOIN "assa-lake".v1_co6_policy_number_mapping co6_pn_mappings
 	AND c25_life_data.life_number = v1_assa_movement.life_number
 	AND v1_assa_movement.company_code = 25*/
 WHERE c11_check.policy_number_z IS NULL
-  AND is_new_generation = 1
-  AND excl.data_import_batch IS NULL;
+  AND v1_assa_movement.is_new_generation = 1
+  --AND excl.data_import_batch IS NULL
+  ;
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     Next table is the SA85-90 rates

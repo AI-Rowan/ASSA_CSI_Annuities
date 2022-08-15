@@ -141,5 +141,3 @@ SELECT exps.cy_grouped
               AND exps.smoking_status = stds.smoking_status
               AND exps.se_class = stds.se_class
               AND exps.accelerator_status = stds.accelerator_status;
-
-
