@@ -131,6 +131,7 @@ SELECT exps.cy_grouped
                             ,exps.se_class
                             ,exps.accelerator_status) 
                                             cell_size
+      ,'ZAR' as country
       ,exps.calendar_year
       ,exps.company_code
   FROM assa_sandbox.assa_new_gen_expected  exps
@@ -140,4 +141,7 @@ SELECT exps.cy_grouped
               AND exps.duration5 = stds.duration5
               AND exps.smoking_status = stds.smoking_status
               AND exps.se_class = stds.se_class
-              AND exps.accelerator_status = stds.accelerator_status;
+              AND exps.accelerator_status = stds.accelerator_status
+	      
+  UNION select * from assa_sandbox.assa_new_gen_expected_std_nam
+  ;
