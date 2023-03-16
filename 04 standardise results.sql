@@ -131,7 +131,7 @@ SELECT exps.cy_grouped
                             ,exps.se_class
                             ,exps.accelerator_status) 
                                             cell_size
-      ,'ZAR' as country
+      ,'ZAF' as country
       ,exps.calendar_year
       ,exps.company_code
   FROM assa_sandbox.assa_new_gen_expected  exps
