@@ -8,7 +8,7 @@ DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_data_exclusions;
 CREATE TABLE assa_sandbox.assa_new_gen_data_exclusions (company_code, year_of_data, data_import_batch) AS 
 SELECT * FROM 
     (VALUES (25, CAST(NULL AS VARCHAR), '2019-12-04'),
-            (6, 'COMBINED_outfile_old_and_new_gen_6_2014.csv', '2020-05-15')) AS t(company_code, filename, data_import_batch)
+            (6, 'COMBINED_outfile_old_and_new_gen_6_2014.csv', '2020-05-15')) AS t(company_code, filename, data_import_batch);
 
 /* ---------------------------------------------------------------------------------------------------------------------
     co25 SEC data is provided in the form of a separate income and education table.
@@ -32,15 +32,15 @@ CREATE TABLE assa_sandbox.co25_secs_mapped
 WITH
     sec_mapping_table
     AS
-        (-- Column names are wrong somehow
-         SELECT t1.country                                                                                                                                   apply_year
-               ,t1.life_number                                                                                                                               edu_original
-               ,t2.country                                                                                                                                   education
-               ,t1.movement_date                                                                                                                             income_min
-               ,MIN (t1.movement_date)
-                    OVER (PARTITION BY t1.country, t1.life_number, t2.country ORDER BY t1.movement_date ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)    income_max
-               ,(100 + t1.gross_income)                                                                                                                      sec_to_use
-           FROM "assa-lake".v1_co25_sec_mapping_table t1 INNER JOIN v1_co25_sec_mmi_translation_table t2 ON t1.life_number = t2.life_number),
+        (
+         SELECT t1.calendar_year                                                                                                                                                    apply_year
+               ,t1.qualification                                                                                                                                                    edu_original
+               ,t2.source_company_category                                                                                                                                          education
+               ,t1.income_from                                                                                                                                                      income_min
+               ,MIN (t1.income_from)
+                    OVER (PARTITION BY t1.calendar_year, t1.qualification, t2.source_company_category ORDER BY t1.income_from ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)     income_max
+               ,(105 - t1.irp_class)                                                                                                                                                sec_to_use -- SEs in table are backwards relative to what we need. We add 100 as spec expects SEs 100+ with first digit representing version
+           FROM "assa-lake".v1_co25_sec_mapping_table t1 INNER JOIN v1_co25_sec_translation_table t2 ON t1.qualification = t2.csi_category),
     inc_edu_clean
     AS
         (SELECT country
@@ -82,9 +82,9 @@ GROUP BY country, life_number, movement_date;
     There are a number of assumptions made to clean up the data
    --------------------------------------------------------------------------------------------------------------------- */
 
-DROP TABLE IF EXISTS assa_sandbox.v1_assa_movement;
+DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_movement;
 
-CREATE TABLE assa_sandbox.v1_assa_movement
+CREATE TABLE assa_sandbox.assa_new_gen_movement
     WITH (
             format = 'ORC'
             ,orc_compression = 'ZLIB'
@@ -98,19 +98,19 @@ WITH
         (  SELECT company_code
                  ,year_of_data
                  ,is_new_generation
-                 ,MAX (data_import_batch)     AS dib_to_use
-             FROM "assa-lake".v1_assa_movement
+                 ,MAX (substr (process_time_stamp, 1, 10))     AS dib_to_use -- This would have been data_import_batch but v2 table overwrote that with a single date for all files. process_time_stamp is equivalent, but with times added.
+             FROM "assa-lake".v2_assa_movement
          GROUP BY company_code, year_of_data, is_new_generation)
 SELECT CASE
-           WHEN v1_assa_movement.company_code = 6 AND v1_assa_movement.year_of_data <= 2013
+           WHEN v2_assa_movement.company_code = 6 AND v2_assa_movement.year_of_data <= 2013
            THEN
-               COALESCE (co6_pn_mappings.policy_number, v1_assa_movement.policy_number)
+               COALESCE (co6_pn_mappings.policy_number, v2_assa_movement.policy_number)
            ELSE
-               v1_assa_movement.policy_number
+               v2_assa_movement.policy_number
        END                                                                                                             AS policy_number
-      , /*COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.
+      , /*COALESCE(c25_life_data.life_number_to_use, COALESCE(TRY_CAST(TRY_CAST(v2_assa_movement.life_number AS INTEGER) AS VARCHAR), v2_assa_movement.
                life_number)) AS life_number*/
-       COALESCE (TRY_CAST (TRY_CAST (v1_assa_movement.life_number AS INTEGER) AS VARCHAR), v1_assa_movement.life_number)       AS life_number
+       COALESCE (TRY_CAST (TRY_CAST (v2_assa_movement.life_number AS INTEGER) AS VARCHAR), v2_assa_movement.life_number)       AS life_number
       ,change_in_movement_code
       ,CASE
            WHEN TRIM (change_in_movement_code) IN ('X0'
@@ -137,9 +137,9 @@ SELECT CASE
       ,sum_assured_in_rand_before_movement
       ,sum_assured_in_rand_after_movement
       ,cause_of_death
-      ,date (v1_assa_movement.policy_date_of_entry)                                                                    AS policy_date_of_entry
-      --,DATE (COALESCE(c25_life_data.dob_to_use, v1_assa_movement.date_of_birth)) AS date_of_birth
-      ,date (v1_assa_movement.date_of_birth)                                                                           AS date_of_birth
+      ,date (v2_assa_movement.policy_date_of_entry)                                                                    AS policy_date_of_entry
+      --,DATE (COALESCE(c25_life_data.dob_to_use, v2_assa_movement.date_of_birth)) AS date_of_birth
+      ,date (v2_assa_movement.date_of_birth)                                                                           AS date_of_birth
       ,sum_assured_in_rand
       ,sex_code
       ,type_of_assurance
@@ -147,24 +147,24 @@ SELECT CASE
       ,smoking_category
       ,accelerator_marker
       ,province
-      ,CASE WHEN v1_assa_movement.company_code = 25 THEN co25_secs_mapped.sec ELSE preferred_underwriting_class END    AS preferred_underwriting_class
-      ,v1_assa_movement.is_new_generation
+      ,CASE WHEN v2_assa_movement.company_code = 25 THEN co25_secs_mapped.sec ELSE preferred_underwriting_class END    AS preferred_underwriting_class
+      ,v2_assa_movement.is_new_generation
       ,special_offer_marker
       ,underwriter_loadings
-      ,date_parse (process_time_stamp, '%Y-%m-%d %H:%i:%s')                                                            AS process_time_stamp
+      ,date_parse ( substr(process_time_stamp, 1, 19), '%Y-%m-%d %H:%i:%s')                                            AS process_time_stamp
       ,process_number
       ,sourcefilename
-      ,v1_assa_movement.company_code
-      ,v1_assa_movement.year_of_data
-  FROM "assa-lake".v1_assa_movement
+      ,v2_assa_movement.company_code
+      ,v2_assa_movement.year_of_data
+  FROM "assa-lake".v2_assa_movement
        INNER JOIN dib_to_use
-           ON     v1_assa_movement.year_of_data = dib_to_use.year_of_data
-              AND v1_assa_movement.company_code = dib_to_use.company_code
-              AND v1_assa_movement.data_import_batch = dib_to_use.dib_to_use
-              AND v1_assa_movement.is_new_generation = dib_to_use.is_new_generation
-       /*LEFT JOIN assa_sandbox.assa_new_gen_data_exclusions excl ON v1_assa_movement.company_code = excl.company_code
-                  AND v1_assa_movement.sourcefilename = COALESCE(excl.filename, v1_assa_movement.sourcefilename)
-                 AND v1_assa_movement.data_import_batch = excl.data_import_batch*/
+           ON     v2_assa_movement.year_of_data = dib_to_use.year_of_data
+              AND v2_assa_movement.company_code = dib_to_use.company_code
+              AND SUBSTRING (v2_assa_movement.process_time_stamp, 1, 10) = dib_to_use.dib_to_use
+              AND v2_assa_movement.is_new_generation = dib_to_use.is_new_generation
+       /*LEFT JOIN assa_sandbox.assa_new_gen_data_exclusions excl ON v2_assa_movement.company_code = excl.company_code
+                  AND v2_assa_movement.sourcefilename = COALESCE(excl.filename, v2_assa_movement.sourcefilename)
+                 AND SUBSTRING (v2_assa_movement.process_time_stamp, 1, 10) = excl.data_import_batch*/
        /* -------------------------------------------------------------------------------------------------------------------------------------------------
           There are cases coming through for company 11 for which there is no exposure in 2003 - 2008,
           but then suddenly exposure in 2009-2011 despite the policies being issued prior to 2003.
@@ -172,18 +172,18 @@ SELECT CASE
           Seems there were only 28 cases so maybe didn't need to worry
           ------------------------------------------------------------------------------------------------------------------------------------------------- */
        LEFT JOIN (  SELECT company_code AS company_code_z, policy_number AS policy_number_z                /* ,life number -- life number is null for co 11 */
-                      FROM "assa-lake".v1_assa_movement
+                      FROM "assa-lake".v2_assa_movement
                      WHERE company_code = 11 AND date (policy_date_of_entry) < DATE '2003-01-01'
                   GROUP BY company_code, policy_number
                     HAVING MIN (year_of_data) = 2009) AS c11_check
-           ON c11_check.company_code_z = v1_assa_movement.company_code AND c11_check.policy_number_z = v1_assa_movement.policy_number
+           ON c11_check.company_code_z = v2_assa_movement.company_code AND c11_check.policy_number_z = v2_assa_movement.policy_number
        /* -------------------------------------------------------------------------------------------------------------------------------------------------
           Company 6 changed admin systems in 2014, and the format of their policy numbers changed with it
           We use a mapping table provided by them to convert old policy numbers to new format
           Note that mappings only exist for policies that were inforce both before and after the changeover
           ------------------------------------------------------------------------------------------------------------------------------------------------- */
        LEFT JOIN "assa-lake".v1_co6_policy_number_mapping co6_pn_mappings
-           ON CAST (co6_pn_mappings.mapped_policy_number AS VARCHAR) = v1_assa_movement.policy_number AND v1_assa_movement.company_code = 6
+           ON CAST (co6_pn_mappings.mapped_policy_number AS VARCHAR) = v2_assa_movement.policy_number AND v2_assa_movement.company_code = 6
        /* -------------------------------------------------------------------------------------------------------------------------------------------------
           For company 25 the format of the life numbers changed around 2012
           Prior to that the DOBs were also wrong.
@@ -202,22 +202,22 @@ SELECT CASE
                            ) RANGE BETWEEN UNBOUNDED PRECEDING
                            AND UNBOUNDED FOLLOWING
                    ) AS dob_to_use
-           FROM "assa-lake".v1_assa_movement
+           FROM "assa-lake".v2_assa_movement
            WHERE company_code = 25
            ORDER BY policy_number
                ,coalesce(regexp_extract(life_number, policy_number || '_(\d*)', 1), regexp_extract(life_number, '^(\d{1,3})_1$', 1))
-           ) AS c25_life_data ON c25_life_data.policy_number = v1_assa_movement.policy_number
-           AND c25_life_data.date_of_birth = v1_assa_movement.date_of_birth
-           AND c25_life_data.policy_date_of_entry = v1_assa_movement.policy_date_of_entry
-           AND c25_life_data.life_number = v1_assa_movement.life_number
-           AND v1_assa_movement.company_code = 25*/
+           ) AS c25_life_data ON c25_life_data.policy_number = v2_assa_movement.policy_number
+           AND c25_life_data.date_of_birth = v2_assa_movement.date_of_birth
+           AND c25_life_data.policy_date_of_entry = v2_assa_movement.policy_date_of_entry
+           AND c25_life_data.life_number = v2_assa_movement.life_number
+           AND v2_assa_movement.company_code = 25*/
        LEFT JOIN assa_sandbox.co25_secs_mapped
-           ON     v1_assa_movement.life_number = co25_secs_mapped.life_number
+           ON     v2_assa_movement.life_number = co25_secs_mapped.life_number
               AND date (effective_date_of_change_movement) < COALESCE (movement_date_max, DATE '2999-12-31')
               AND date (effective_date_of_change_movement) >= movement_date_min
               AND co25_secs_mapped.country = 'South Africa'
-              AND v1_assa_movement.company_code = 25
- WHERE c11_check.policy_number_z IS NULL AND v1_assa_movement.is_new_generation = 1
+              AND v2_assa_movement.company_code = 25
+ WHERE c11_check.policy_number_z IS NULL AND v2_assa_movement.is_new_generation = 1;
 --AND excl.data_import_batch IS NULL;
 ;
 
@@ -256,7 +256,7 @@ CREATE TABLE assa_sandbox.csi_mort_params
 SELECT *
 FROM (
     VALUES (
-        '2017-01-01'
+        '2020-01-01'
         ,'exposure_end_date'
         ),
         (

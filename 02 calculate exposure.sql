@@ -19,7 +19,7 @@ WITH exposure_years AS (
             ,y.policy_year + o.offset AS calendar_year
         FROM (
             SELECT sequence(MIN(EXTRACT(YEAR FROM effective_date_of_change_movement)) - 1, MAX(EXTRACT(YEAR FROM effective_date_of_change_movement)))
-            FROM assa_sandbox.v1_assa_movement
+            FROM assa_sandbox.assa_new_gen_movement
             ) AS years(policy_year)
         CROSS JOIN UNNEST(policy_year) AS y(policy_year)
             ,(
@@ -83,8 +83,8 @@ WITH exposure_years AS (
                                        ,policy_number
                                        ,life_number
                                        ,effective_date_of_change_movement)     AS current_termination
-               ,v1_assa_movement.*
-           FROM assa_sandbox.v1_assa_movement) 
+               ,assa_new_gen_movement.*
+           FROM assa_sandbox.assa_new_gen_movement) 
     /* -------------------------------------------------------------------------------------------------------
     Next we need to find the next movement for this policy so that we know the end of the exposure period
     We cut off at the end of the study period, or if this is a termination stop where we are.
@@ -304,14 +304,20 @@ WITH
         (SELECT 0
          UNION ALL
          SELECT 1),
+    dib_to_use 
+    AS  
+        (SELECT MAX(data_import_batch) AS dib_to_use
+           FROM "assa-lake".v1_mortality_co18),
     ages_fix
     AS
-        (SELECT lib.*, age_last AS age_last_fixed, age_last + age_offsets.offset AS age_nearest_fixed
-           FROM "assa-lake".v1_mortality_liberty lib, age_offsets
+        (SELECT dat.*, age_last AS age_last_fixed, age_last + age_offsets.offset AS age_nearest_fixed
+           FROM "assa-lake".v1_mortality_co18 dat
+          INNER JOIN dib_to_use ON dat.data_import_batch = dib_to_use.dib_to_use, age_offsets
           WHERE age_nearest IS NULL
          UNION ALL
-         SELECT lib.*, age_nearest - age_offsets.offset AS age_last_fixed, age_nearest AS age_nearest_fixed
-           FROM "assa-lake".v1_mortality_liberty lib, age_offsets
+         SELECT dat.*, age_nearest - age_offsets.offset AS age_last_fixed, age_nearest AS age_nearest_fixed
+           FROM "assa-lake".v1_mortality_co18 dat
+          INNER JOIN dib_to_use ON dat.data_import_batch = dib_to_use.dib_to_use, age_offsets
           WHERE age_last IS NULL)
 SELECT CASE
            WHEN year_of_invest <= 2006 THEN '≤ 2005'
