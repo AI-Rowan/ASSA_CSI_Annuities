@@ -190,7 +190,7 @@ SELECT CASE
       ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                               AS sex
       ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                      AS smoking_status
       ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END          AS accelerator_status
-      ,CASE underwriter_loadings
+      ,CASE COALESCE(underwriter_loadings,-1)
            WHEN 1 THEN 'EM loading 1% - 50%'
            WHEN 2 THEN 'EM loading 51% - 100%'
            WHEN 3 THEN 'EM loading 101% - 150%'
@@ -200,9 +200,10 @@ SELECT CASE
            WHEN 7 THEN 'Flat loading > 200 per mille'
            WHEN 8 THEN 'Underwriting exclusion'
            WHEN 0 THEN 'Not Loaded'
+           WHEN -99 THEN 'Unspecified'
            ELSE 'Invalid code'
        END                                                                                                                                                      AS underwriter_loadings
-      ,CASE underwriter_loadings WHEN NULL THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                                    AS loaded_vs_standard
+      ,CASE COALESCE(underwriter_loadings,-99) WHEN -1 THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                        AS loaded_vs_standard
       ,CASE type_of_medical_underwriting WHEN 1 THEN 'Medical' WHEN 2 THEN 'Non-Medical' ELSE 'Unspecified' END                                                 AS type_of_underwriting
       ,preferred_underwriting_class
       ,MOD (preferred_underwriting_class, 10)                                                                                                                   AS se_class
@@ -331,7 +332,7 @@ SELECT CASE
       ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                         AS sex
       ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                AS smoking_status
       ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END    AS accelerator_status
-      ,CASE underwriter_loadings
+      ,CASE COALESCE(underwriter_loadings,-1)
            WHEN 1 THEN 'EM loading 1% - 50%'
            WHEN 2 THEN 'EM loading 51% - 100%'
            WHEN 3 THEN 'EM loading 101% - 150%'
@@ -341,9 +342,10 @@ SELECT CASE
            WHEN 7 THEN 'Flat loading > 200 per mille'
            WHEN 8 THEN 'Underwriting exclusion'
            WHEN 0 THEN 'Not Loaded'
+           WHEN -99 THEN 'Unspecified'
            ELSE 'Invalid code'
        END                                                                                                                                                AS underwriter_loadings
-      ,CASE underwriter_loadings WHEN NULL THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                              AS loaded_vs_standard
+      ,CASE COALESCE(underwriter_loadings,-99) WHEN -1 THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                  AS loaded_vs_standard
       ,CASE type_of_medical_underwriting WHEN 1 THEN 'Medical' WHEN 2 THEN 'Non-Medical' ELSE 'Unspecified' END                                           AS type_of_underwriting
       ,preferred_underwriting_class
       ,MOD (preferred_underwriting_class, 10)                                                                                                             AS se_class
