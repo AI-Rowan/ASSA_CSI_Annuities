@@ -180,8 +180,7 @@ WITH exposure_years AS (
           WHERE end_date <= study_end_date AND begin_date < study_end_date AND begin_date <= end_date)
 SELECT CASE
            WHEN calendar_year <= 2006 THEN '≤ 2005'
-           ELSE CAST (2 * (calendar_year / 2) AS VARCHAR) || ' - ' || CAST (1 + 2 * (calendar_year / 2) AS VARCHAR)
-       -- Note that 2 * (cy / 2) rounds down to multiple of 2 (integer arithmetic)
+           ELSE CAST (2 * (calendar_year / 2) AS VARCHAR) || ' - ' || CAST (1 + 2 * (calendar_year / 2) AS VARCHAR) -- Note that 2 * (cy / 2) rounds down to multiple of 2 (integer arithmetic)
        END                                                                                                                                                      AS cy_grouped
       ,CAST (-1 + 6 * ((calendar_year + 1) / 6) AS VARCHAR) || ' - ' || CAST (4 + 6 * ((calendar_year + 1) / 6) AS VARCHAR)                                     AS cy_grouped2
       ,policy_year
@@ -190,7 +189,7 @@ SELECT CASE
       ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                               AS sex
       ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                      AS smoking_status
       ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END          AS accelerator_status
-      ,CASE COALESCE(underwriter_loadings,-1)
+      ,CASE COALESCE (underwriter_loadings, -99)
            WHEN 1 THEN 'EM loading 1% - 50%'
            WHEN 2 THEN 'EM loading 51% - 100%'
            WHEN 3 THEN 'EM loading 101% - 150%'
@@ -203,10 +202,32 @@ SELECT CASE
            WHEN -99 THEN 'Unspecified'
            ELSE 'Invalid code'
        END                                                                                                                                                      AS underwriter_loadings
-      ,CASE COALESCE(underwriter_loadings,-99) WHEN -1 THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                        AS loaded_vs_standard
+      ,CASE COALESCE (underwriter_loadings, -99) WHEN -99 THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                     AS loaded_vs_standard
       ,CASE type_of_medical_underwriting WHEN 1 THEN 'Medical' WHEN 2 THEN 'Non-Medical' ELSE 'Unspecified' END                                                 AS type_of_underwriting
       ,preferred_underwriting_class
-      ,MOD (preferred_underwriting_class, 10)                                                                                                                   AS se_class
+      ,CASE company_code
+           WHEN 12
+           THEN
+               CAST (MOD (preferred_underwriting_class, 10) AS VARCHAR)
+           WHEN 6
+           THEN
+               CASE MOD (preferred_underwriting_Class, 10)
+                   WHEN 1 THEN 'Best/Professional'
+                   WHEN 2 THEN 'Best/Professional'
+                   WHEN 3 THEN 'Second Best'
+                   WHEN 4 THEN 'Third Best'
+                   WHEN 5 THEN 'Worst'
+                   ELSE 'Unknown'
+               END
+           ELSE
+               CASE MOD (preferred_underwriting_Class, 10)
+                   WHEN 1 THEN 'Best/Professional'
+                   WHEN 2 THEN 'Second Best'
+                   WHEN 3 THEN 'Third Best'
+                   WHEN 4 THEN 'Worst'
+                   ELSE 'Unknown'
+               END
+       END                                                                                                                                                      AS se_class
       ,CASE type_of_assurance
            WHEN 1 THEN 'Term Assurance'
            WHEN 2 THEN 'Retirement Annuities'
@@ -262,29 +283,31 @@ SELECT CASE
        * sum_assured_in_rand                                                                                                                                    AS aar_weighted_exposure_exact
       ,CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END                                       AS actual_claim_cnt
       ,CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN sum_assured_in_rand ELSE 0 END                     AS actual_claim_amt
-      ,CASE 
-            WHEN movement_code_clean = '30' AND current_termination != 0 
-            THEN 
-                CASE cause_of_death 
-                    WHEN 1 THEN 'Cancer'
-                    WHEN 2 THEN 'Cardiac'
-                    WHEN 3 THEN 'Cerebrovascular'
-                    WHEN 4 THEN 'Respiratory Disease'
-                    WHEN 5 THEN 'Accidental / Violent'
-                    WHEN 6 THEN 'Definitely AIDS'
-                    WHEN 7 THEN 'Suspected AIDS'
-                    WHEN 8 THEN 'Multi-Organ failure'
-                    WHEN 9 THEN 'Other (known, unlisted)'
-                    WHEN 10 THEN 'Non-specific Non-natural'
-                    WHEN 11 THEN 'Non-specific Natural'
-                    WHEN 0 THEN 'Unspecified'
-                    ELSE 'Unknown cause code: ' || CAST (cause_of_death AS VARCHAR)
-                END
-            ELSE NULL END                                                                                                                                           AS cause_of_death
+      ,CASE
+           WHEN movement_code_clean = '30' AND current_termination != 0
+           THEN
+               CASE cause_of_death
+                   WHEN 1 THEN 'Cancer'
+                   WHEN 2 THEN 'Cardiac'
+                   WHEN 3 THEN 'Cerebrovascular'
+                   WHEN 4 THEN 'Respiratory Disease'
+                   WHEN 5 THEN 'Accidental / Violent'
+                   WHEN 6 THEN 'Definitely AIDS'
+                   WHEN 7 THEN 'Suspected AIDS'
+                   WHEN 8 THEN 'Multi-Organ failure'
+                   WHEN 9 THEN 'Other (known, unlisted)'
+                   WHEN 10 THEN 'Non-specific Non-natural'
+                   WHEN 11 THEN 'Non-specific Natural'
+                   WHEN 0 THEN 'Unspecified'
+                   ELSE 'Unknown cause code: ' || CAST (cause_of_death AS VARCHAR)
+               END
+           ELSE
+               NULL
+       END                                                                                                                                                      AS cause_of_death
       ,calendar_year
       ,company_code
   FROM exposure_calc
- WHERE exposure_days >= 0 AND policy_duration >= 0;  
+ WHERE exposure_days >= 0 AND policy_duration >= 0; 
  
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     Now we convert company 18's data to a format consistent to be appended to the rest
@@ -332,7 +355,7 @@ SELECT CASE
       ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                         AS sex
       ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                AS smoking_status
       ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END    AS accelerator_status
-      ,CASE COALESCE(underwriter_loadings,-1)
+      ,CASE COALESCE(underwriter_loadings,-99)
            WHEN 1 THEN 'EM loading 1% - 50%'
            WHEN 2 THEN 'EM loading 51% - 100%'
            WHEN 3 THEN 'EM loading 101% - 150%'
@@ -345,10 +368,16 @@ SELECT CASE
            WHEN -99 THEN 'Unspecified'
            ELSE 'Invalid code'
        END                                                                                                                                                AS underwriter_loadings
-      ,CASE COALESCE(underwriter_loadings,-99) WHEN -1 THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                  AS loaded_vs_standard
+      ,CASE COALESCE(underwriter_loadings,-99) WHEN -99 THEN 'Unspecified' WHEN 0 THEN 'Standard Rates' ELSE 'Loaded' END                                 AS loaded_vs_standard
       ,CASE type_of_medical_underwriting WHEN 1 THEN 'Medical' WHEN 2 THEN 'Non-Medical' ELSE 'Unspecified' END                                           AS type_of_underwriting
       ,preferred_underwriting_class
-      ,MOD (preferred_underwriting_class, 10)                                                                                                             AS se_class
+      ,CASE MOD (preferred_underwriting_Class, 10)
+           WHEN 1 THEN 'Best/Professional'
+           WHEN 2 THEN 'Second Best'
+           WHEN 3 THEN 'Third Best'
+           WHEN 4 THEN 'Worst'
+           ELSE 'Unknown'
+       END                                                                                                                                                AS se_class
       ,CASE type_of_assurance
            WHEN 1 THEN 'Term Assurance'
            WHEN 2 THEN 'Retirement Annuities'
