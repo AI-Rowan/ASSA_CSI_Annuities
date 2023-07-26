@@ -334,12 +334,12 @@ WITH
            FROM "assa-lake".v1_mortality_co18),
     ages_fix
     AS
-        (SELECT dat.*, age_last AS age_last_fixed, age_last + age_offsets.offset AS age_nearest_fixed
+        (SELECT dat.*, CAST(age_last AS BIGINT) AS age_last_fixed, CAST(age_last + age_offsets.offset AS BIGINT) AS age_nearest_fixed
            FROM "assa-lake".v1_mortality_co18 dat
           INNER JOIN dib_to_use ON dat.data_import_batch = dib_to_use.dib_to_use, age_offsets
           WHERE age_nearest IS NULL
          UNION ALL
-         SELECT dat.*, age_nearest - age_offsets.offset AS age_last_fixed, age_nearest AS age_nearest_fixed
+         SELECT dat.*, CAST(age_nearest - age_offsets.offset AS BIGINT) AS age_last_fixed, CAST(age_nearest AS BIGINT) AS age_nearest_fixed
            FROM "assa-lake".v1_mortality_co18 dat
           INNER JOIN dib_to_use ON dat.data_import_batch = dib_to_use.dib_to_use, age_offsets
           WHERE age_last IS NULL)
