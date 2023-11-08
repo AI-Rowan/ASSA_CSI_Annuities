@@ -19,5 +19,6 @@ SELECT 'SA 85-90'                                                          AS ra
   FROM (SELECT * FROM assa_sandbox.assa_new_gen_exposure
         UNION ALL
         SELECT * FROM assa_sandbox.assa_new_gen_exposure_18) AS exps
-       LEFT JOIN assa_sandbox.mortality_sa8590 AS rates ON rates.age = exps.age_last_at_pa AND rates.duration = exps.duration3;
+       LEFT JOIN assa_sandbox.mortality_sa8590 AS rates ON rates.age = exps.age_last_at_pa AND rates.duration = exps.duration3
+ WHERE company_code != 12;
 

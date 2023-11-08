@@ -431,4 +431,7 @@ SELECT CASE
       ,company_code
   FROM ages_fix
  INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
- WHERE exp_days_cen >= 0 AND duration >= 0 AND year_of_invest < EXTRACT(YEAR FROM DATE(param_value)) AND is_new_generation = 1;
+ WHERE     exp_days_cen >= 0 
+       AND duration >= 0 
+       AND year_of_invest < EXTRACT(YEAR FROM DATE(param_value)) 
+       AND is_new_generation = 1;
