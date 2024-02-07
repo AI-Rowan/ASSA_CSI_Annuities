@@ -12,68 +12,112 @@ Initial step is combining the exposure data from companies providing in standard
 Output table is `covid_exposure`
 
 ```{sql exposure, eval=FALSE}
-    WITH
-        dib_to_use
-        AS
-            (  SELECT company_code, date_parse (effective_date, '%Y-%m-%d') AS effective_date, MAX (data_import_batch) AS max_batch
-                 FROM "assa-lake".v1_covid_exposure
-             GROUP BY company_code, date_parse (effective_date, '%Y-%m-%d')),
-        dib_to_use_25
-        AS
-            (  SELECT year_month_of_file, MAX (data_import_batch) AS max_batch
-                 FROM "assa-lake".v1_covid_inforce_25
-             GROUP BY year_month_of_file),
-        clean_data
-        AS
-            (SELECT company_code,
-                    sex,
-                    smoker_status,
-                    age_band,
-                    COALESCE (NULLIF (socio_economic_group, ''), 'UNKNOWN')     AS socio_economic_group,
-                    date_parse (effective_date, '%Y-%m-%d')                     AS effective_date,
-                    number_of_policies,
-                    company_code                                                AS service_client_id,
-                    data_import_batch
-               FROM "assa-lake".v1_covid_exposure)
-    SELECT clean_data.*
-      FROM clean_data
-           INNER JOIN dib_to_use
-               ON     clean_data.company_code = dib_to_use.company_code
-                  AND clean_data.effective_date = dib_to_use.effective_date
-                  AND clean_data.data_import_batch = dib_to_use.max_batch
-UNION ALL
-  SELECT company_code
-       ,gender       AS sex
-        ,smoker_status
-        ,CASE
-             WHEN age < 20 THEN '<20'
-             WHEN age >= 70 THEN '70+'
-             ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
-         END          age_band
-        ,education    AS socio_economic_group
-        ,effective_date
-        ,COUNT (*)    AS number_of_policies
-        ,company_code as service_client_id
-        ,data_import_batch
-    FROM (SELECT lake.*
-                ,date_diff ('year', date_parse (date_of_birth, '%Y-%m-%d'),eff_date)     AS age
-                ,eff_date                                                                AS effective_date
-            FROM (values ('201812',date '2018-12-31'),('201912',date '2019-12-31'),('2020H1',date '2020-06-30'),('2020H2',date '2020-12-31'),('202101',date '2021-01-31'))  AS t(data_year_month,  eff_date)
-                 LEFT JOIN ("assa-lake".v1_covid_inforce_25 lake INNER JOIN dib_to_use_25
-                                                                      ON    lake.data_import_batch = dib_to_use_25.max_batch
-                                                                        AND lake.year_month_of_file = dib_to_use_25.year_month_of_file)
-                     ON lake.year_month_of_file = t.data_year_month AND date_parse(lake.policy_date_of_entry, '%Y-%m-%d') <= t.eff_date)
-GROUP BY company_code
-        ,gender
-        ,smoker_status
-        ,CASE
-             WHEN age < 20 THEN '<20'
-             WHEN age >= 70 THEN '70+'
-             ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
-         END
-        ,education
-        ,effective_date
-        ,data_import_batch;
+  WITH dib_to_use AS (
+  SELECT
+    company_code,
+    date_parse (effective_date, '%Y-%m-%d') AS effective_date,
+    MAX (data_import_batch) AS max_batch
+  FROM
+    "assa-lake".v1_covid_exposure
+    WHERE company_code not in (11,30)
+  GROUP BY
+    company_code,
+    date_parse (effective_date, '%Y-%m-%d')
+),
+dib_to_use_25 AS (
+  SELECT
+    year_month_of_file,
+    MAX (process_time_stamp) AS max_batch
+  FROM
+    "assa-lake".v1_covid_inforce_25
+  GROUP BY
+    year_month_of_file
+),
+clean_data AS (
+  SELECT
+    company_code,
+    sex,
+    smoker_status,
+    CASE
+      WHEN age_band = '60-70' THEN '60 - 69'
+      WHEN age_band = '>=70' THEN '70+'
+      ELSE REGEXP_REPLACE (
+        age_band,
+        '(?<rstart>\d+)-(?<rend>\d+)',
+        '${rstart} - ${rend}'
+      )
+    END AS age_band,
+    COALESCE (NULLIF (socio_economic_group, ''), 'UNKNOWN') AS socio_economic_group,
+    date_parse (effective_date, '%Y-%m-%d') AS effective_date,
+    number_of_policies,
+    company_code AS service_client_id,
+    data_import_batch
+  FROM
+    "assa-lake".v1_covid_exposure
+)
+SELECT
+  clean_data.*
+FROM
+  clean_data
+  INNER JOIN dib_to_use ON clean_data.company_code = dib_to_use.company_code
+  AND clean_data.effective_date = dib_to_use.effective_date
+  AND clean_data.data_import_batch = dib_to_use.max_batch
+UNION
+ALL
+SELECT
+  company_code,
+  gender AS sex,
+  smoker_status,
+CASE
+    WHEN age < 20 THEN '<20'
+    WHEN age >= 70 THEN '70+'
+    ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
+  END age_band,
+  education AS socio_economic_group,
+  effective_date,
+  COUNT (*) AS number_of_policies,
+  company_code as service_client_id,
+  data_import_batch
+FROM
+  (
+    SELECT
+      lake.*,
+      date_diff (
+        'year',
+        date_parse (date_of_birth, '%Y-%m-%d'),
+        eff_date
+      ) AS age,
+      eff_date AS effective_date
+    FROM 
+    (
+      select 
+        case year_month_of_file
+          when '2020H1' THEN  date '2020-06-30'
+          when '2020H2' THEN  date '2020-12-31'
+          else last_day_of_month(date_parse(year_month_of_file, '%Y%m'))
+        end as eff_date, 
+        *
+      from "assa-lake".v1_covid_inforce_25
+      ) lake
+      INNER JOIN dib_to_use_25 ON lake.process_time_stamp = dib_to_use_25.max_batch
+      AND lake.year_month_of_file = dib_to_use_25.year_month_of_file
+  )
+GROUP BY
+  company_code,
+  gender,
+  smoker_status,
+CASE
+    WHEN age < 20 THEN '<20'
+    WHEN age >= 70 THEN '70+'
+    ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
+  END,
+  education,
+  effective_date,
+  data_import_batch
+  UNION ALL
+  SELECT * FROM "assa_insights".v1_2_co11_covid_exposure
+  UNION ALL
+  SELECT * FROM "assa_insights".v1_2_co30_covid_exposure;  
 
 ```
 
@@ -84,104 +128,227 @@ We do the equivalent for claims data:
 Output table is `covid_claims`
 
 ```{sql claims, eval=FALSE}
-WITH
-        dib_to_use
-        AS
-            (  SELECT company_code, MAX (data_import_batch) data_import_batch
-                 FROM "assa-lake".v1_covid_claims
-             GROUP BY company_code),
-        dib_to_use_25_if
-        AS
-            (  SELECT year_month_of_file, MAX (data_import_batch) AS max_batch
-                 FROM "assa-lake".v1_covid_inforce_25
-             GROUP BY year_month_of_file),
-        dib_to_use_25_clm
-        AS
-            (  SELECT MAX (data_import_batch) AS max_batch
-                 FROM "assa-lake".v1_covid_claims_25)
-    SELECT v1_covid_claims.company_code
-          ,date_parse (date_data_received, '%Y-%m-%d')                                                                                             AS date_date_received
-          ,sex
-          ,REPLACE (smoker_status, 'smoker', 'Smoker')                                                                                             AS smoker_status
-          ,CASE WHEN age_band = '60-70' THEN '60 - 69' ELSE REGEXP_REPLACE (age_band, '(?<rstart>\d+)-(?<rend>\d+)', '${rstart} - ${rend}') END    AS age_band
-          ,                                                                                                        -- Make sure dashes have surrounding spaces
-           socio_economic_class
-          ,date_parse (year_and_month_of_date_of_death, '%Y-%m-%d')                                                                                AS year_and_month_of_date_of_death
-          ,date_parse (NULLIF (year_and_month_of_date_reported, ''), '%Y-%m-%d')                                                                   AS year_and_month_of_date_reported
-          ,number_of_natural_deaths_excl_covid
-          ,number_of_covid_deaths
-          ,number_of_unnatural_deaths
-          ,total_number_of_natural_deaths_incl_covid
-          ,total_claims
-          ,v1_covid_claims.company_code                                                                                                            AS service_client_id
-      FROM "assa-lake".v1_covid_claims
-           INNER JOIN dib_to_use
-               ON v1_covid_claims.company_code = dib_to_use.company_code AND v1_covid_claims.data_import_batch = dib_to_use.data_import_batch
-    UNION ALL
-      SELECT company_code
-            ,date_parse (data_import_batch, '%Y-%m-%d')                                                                     date_data_received
-            ,gender                                                                                                         AS sex
-            ,smoker_status
-            ,CASE
-                 WHEN age < 20 THEN '<20'
-                 WHEN age >= 70 THEN '70+'
-                 ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
-             END                                                                                                            age_band
-            ,education                                                                                                      AS socio_economic_group
-            ,date_parse (date_of_death, '%Y-%m-%d')                                                                         AS year_and_month_of_date_of_death
-            ,date_parse (date_reported, '%Y-%m-%d')                                                                         AS year_and_month_of_date_reported
-            ,  SUM (CASE WHEN natural_or_unnatural = 'Natural' AND covid19_ind = 'N' THEN 1 ELSE 0 END)
-             + SUM (CASE WHEN natural_or_unnatural = 'Unknown' AND covid19_ind = 'N' THEN 1 ELSE 0 END * nat_prop)          AS number_of_natural_deaths_excl_covid
-            ,SUM (CASE WHEN covid19_ind = 'Y' THEN 1 ELSE 0 END)                                                            number_of_covid_deaths
-            ,  SUM (CASE WHEN natural_or_unnatural = 'Unnatural' AND covid19_ind = 'N' THEN 1 ELSE 0 END)
-             + SUM (CASE WHEN natural_or_unnatural = 'Unknown' AND covid19_ind = 'N' THEN 1 ELSE 0 END * (1 - nat_prop))    AS number_of_unnatural_deaths
-            ,  SUM (CASE WHEN natural_or_unnatural = 'Natural' OR covid19_ind = 'Y' THEN 1 ELSE 0 END)
-             + SUM (CASE WHEN natural_or_unnatural = 'Unknown' AND covid19_ind = 'N' THEN 1 ELSE 0 END * nat_prop)          AS number_of_natural_deaths_incl_covid
-            ,COUNT (*)                                                                                                      AS total_claims
-            ,company_code                                                                                                   AS service_client_id
-        FROM (SELECT /* Allocate Unknowns to Natural/Unnatural in proportion to business as a whole, at gender/age_band granularity */
-                     dat0.*
-                    ,  SUM (CASE WHEN natural_or_unnatural = 'Natural' THEN 1.0 ELSE 0.0 END)
-                           OVER (PARTITION BY gender, LEAST (GREATEST (FLOOR (age / 10), 19), 70))
-                     / SUM (CASE WHEN natural_or_unnatural != 'Unknown' THEN 1.0 ELSE 0.0 END)
-                           OVER (PARTITION BY gender, LEAST (GREATEST (FLOOR (age / 10), 19), 70))    AS nat_prop
-                FROM (SELECT clm.company_code
-                            ,clm.data_import_batch
-                            ,lake.policy_number
-                            ,lake.life_number
-                            ,lake.year_month_of_file                                                                                AS if_ym
-                            ,lake.data_import_batch                                                                                 AS if_dib
-                            ,lake.gender
-                            ,date_of_death
-                            ,date_reported
-                            ,covid19_ind
-                            ,natural_or_unnatural
-                            ,education
-                            ,REPLACE (smoker_status, 'smoker', 'Smoker')                                                            AS smoker_status
-                            ,date_diff ('year', date_parse (date_of_birth, '%Y-%m-%d'), date_parse (date_of_death, '%Y-%m-%d'))     AS age
-                            ,date_parse (date_of_death, '%Y-%m-%d')                                                                 AS effective_date
-                        FROM ("assa-lake".v1_covid_claims_25                                  clm INNER JOIN dib_to_use_25_clm dib1 ON     clm.data_import_batch = dib1.max_batch)
-                             LEFT JOIN
-                             ("assa-lake".v1_covid_inforce_25 lake INNER JOIN dib_to_use_25_if dib2 ON     lake.data_import_batch = dib2.max_batch
-                                                                                                       AND lake.year_month_of_file = dib2.year_month_of_file)
-                                 ON lake.policy_number = clm.policy_number AND lake.life_number = clm.life_number
-                       WHERE lake.policy_number IS NOT NULL) dat0) dat
-             INNER JOIN (  SELECT policy_number, life_number, MAX (year_month_of_file) max_file, MAX(data_import_batch) max_dib
-                             FROM "assa-lake".v1_covid_inforce_25
-                         GROUP BY policy_number, life_number) fil
-                 ON dat.policy_number = fil.policy_number AND dat.life_number = fil.life_number AND dat.if_ym = fil.max_file AND dat.if_dib = fil.max_dib
-    GROUP BY company_code
-            ,date_parse (data_import_batch, '%Y-%m-%d')
-            ,gender
-            ,smoker_status
-            ,CASE
-                 WHEN age < 20 THEN '<20'
-                 WHEN age >= 70 THEN '70+'
-                 ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
-             END
-            ,education
-            ,date_parse (date_of_death, '%Y-%m-%d')
-            ,date_parse (date_reported, '%Y-%m-%d')
+ WITH dib_to_use AS (
+  SELECT
+    company_code,
+    MAX (data_import_batch) data_import_batch
+  FROM
+    "assa-lake".v2_covid_claims
+      WHERE company_code not in (6,11,30)
+  GROUP BY
+    company_code
+),
+dib_to_use_25_if AS (
+  SELECT
+    year_month_of_file,
+    MAX (data_import_batch) AS max_batch
+  FROM
+    "assa-lake".v1_covid_inforce_25
+  -- #####
+  where data_import_batch != '2022-05-10'
+  -- ####
+  GROUP BY
+    year_month_of_file
+),
+dib_to_use_25_clm AS (
+  SELECT
+    MAX (data_import_batch) AS max_batch
+  FROM
+    "assa-lake".v1_covid_claims_25
+  -- #####
+  where data_import_batch != '2022-05-10'
+  -- ####   
+)
+SELECT
+  v2_covid_claims.company_code,
+  date_parse (date_data_received, '%Y-%m-%d') AS date_date_received,
+  sex,
+  REPLACE (smoker_status, 'smoker', 'Smoker') AS smoker_status,
+CASE
+    WHEN age_band = '60-70' THEN '60 - 69'
+    ELSE REGEXP_REPLACE (
+      age_band,
+      '(?<rstart>\d+)-(?<rend>\d+)',
+      '${rstart} - ${rend}'
+    )
+  END AS age_band,
+  -- Make sure dashes have surrounding spaces
+  socio_economic_class,
+  date_parse (year_and_month_of_date_of_death, '%Y-%m-%d') AS year_and_month_of_date_of_death,
+  date_parse (
+    NULLIF (year_and_month_of_date_reported, ''),
+    '%Y-%m-%d'
+  ) AS year_and_month_of_date_reported,
+  number_of_natural_deaths_excl_covid,
+  number_of_covid_deaths,
+  number_of_unnatural_deaths,
+  total_number_of_natural_deaths_incl_covid,
+  total_claims,
+  v2_covid_claims.company_code AS service_client_id
+FROM
+  "assa-lake".v2_covid_claims
+  INNER JOIN dib_to_use ON v2_covid_claims.company_code = dib_to_use.company_code
+  AND v2_covid_claims.data_import_batch = dib_to_use.data_import_batch
+UNION
+ALL
+SELECT
+  company_code,
+  date_parse (data_import_batch, '%Y-%m-%d') date_data_received,
+  gender AS sex,
+  smoker_status,
+CASE
+    WHEN age < 20 THEN '<20'
+    WHEN age >= 70 THEN '70+'
+    ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
+  END age_band,
+  education AS socio_economic_group,
+  date_parse (date_of_death, '%Y-%m-%d') AS year_and_month_of_date_of_death,
+  date_parse (date_reported, '%Y-%m-%d') AS year_and_month_of_date_reported,
+  SUM (
+    CASE
+      WHEN natural_or_unnatural = 'Natural'
+      AND covid19_ind = 'N' THEN 1
+      ELSE 0
+    END
+  ) + SUM (
+    CASE
+      WHEN natural_or_unnatural = 'Unknown'
+      AND covid19_ind = 'N' THEN 1
+      ELSE 0
+    END * nat_prop
+  ) AS number_of_natural_deaths_excl_covid,
+  SUM (
+    CASE
+      WHEN covid19_ind = 'Y' THEN 1
+      ELSE 0
+    END
+  ) number_of_covid_deaths,
+  SUM (
+    CASE
+      WHEN natural_or_unnatural = 'Unnatural'
+      AND covid19_ind = 'N' THEN 1
+      ELSE 0
+    END
+  ) + SUM (
+    CASE
+      WHEN natural_or_unnatural = 'Unknown'
+      AND covid19_ind = 'N' THEN 1
+      ELSE 0
+    END * (1 - nat_prop)
+  ) AS number_of_unnatural_deaths,
+  SUM (
+    CASE
+      WHEN natural_or_unnatural = 'Natural'
+      OR covid19_ind = 'Y' THEN 1
+      ELSE 0
+    END
+  ) + SUM (
+    CASE
+      WHEN natural_or_unnatural = 'Unknown'
+      AND covid19_ind = 'N' THEN 1
+      ELSE 0
+    END * nat_prop
+  ) AS number_of_natural_deaths_incl_covid,
+  COUNT (*) AS total_claims,
+  company_code AS service_client_id
+FROM
+  (
+    SELECT
+      /* Allocate Unknowns to Natural/Unnatural in proportion to business as a whole, at gender/age_band granularity */
+      dat0.*,
+      SUM (
+        CASE
+          WHEN natural_or_unnatural = 'Natural' THEN 1.0
+          ELSE 0.0
+        END
+      ) OVER (
+        PARTITION BY gender,
+        LEAST (GREATEST (FLOOR (age / 10), 19), 70)
+      ) / SUM (
+        CASE
+          WHEN natural_or_unnatural != 'Unknown' THEN 1.0
+          ELSE 0.0
+        END
+      ) OVER (
+        PARTITION BY gender,
+        LEAST (GREATEST (FLOOR (age / 10), 19), 70)
+      ) AS nat_prop
+    FROM
+      (
+        SELECT
+          clm.company_code,
+          clm.data_import_batch,
+          lake.policy_number,
+          lake.life_number,
+          lake.year_month_of_file AS if_ym,
+          lake.data_import_batch AS if_dib,
+          lake.gender,
+          date_of_death,
+          date_reported,
+          covid19_ind,
+          natural_or_unnatural,
+          education,
+          REPLACE (smoker_status, 'smoker', 'Smoker') AS smoker_status,
+          date_diff (
+            'year',
+            date_parse (date_of_birth, '%Y-%m-%d'),
+            date_parse (date_of_death, '%Y-%m-%d')
+          ) AS age,
+          date_parse (date_of_death, '%Y-%m-%d') AS effective_date
+        FROM
+          (
+            "assa-lake".v1_covid_claims_25 clm
+            INNER JOIN dib_to_use_25_clm dib1 ON clm.data_import_batch = dib1.max_batch
+          )
+          LEFT JOIN (
+            "assa-lake".v1_covid_inforce_25 lake
+            INNER JOIN dib_to_use_25_if dib2 ON lake.data_import_batch = dib2.max_batch
+            AND lake.year_month_of_file = dib2.year_month_of_file
+          ) ON lake.policy_number = clm.policy_number
+          AND lake.life_number = clm.life_number
+        WHERE
+          lake.policy_number IS NOT NULL
+      ) dat0
+  ) dat
+  INNER JOIN (
+    SELECT
+      policy_number,
+      life_number,
+      MAX (year_month_of_file) max_file,
+      MAX(data_import_batch) max_dib
+    FROM
+      "assa-lake".v1_covid_inforce_25
+      -- #####
+        where data_import_batch != '2022-05-10'
+      -- ####   
+    GROUP BY
+      policy_number,
+      life_number
+  ) fil ON dat.policy_number = fil.policy_number
+  AND dat.life_number = fil.life_number
+  AND dat.if_ym = fil.max_file
+  AND dat.if_dib = fil.max_dib
+GROUP BY
+  company_code,
+  date_parse (data_import_batch, '%Y-%m-%d'),
+  gender,
+  smoker_status,
+CASE
+    WHEN age < 20 THEN '<20'
+    WHEN age >= 70 THEN '70+'
+    ELSE CAST (10 * FLOOR (age / 10) AS VARCHAR) || ' - ' || CAST (10 * (FLOOR (age / 10) + 1) - 1 AS VARCHAR)
+  END,
+  education,
+  date_parse (date_of_death, '%Y-%m-%d'),
+  date_parse (date_reported, '%Y-%m-%d')
+ UNION ALL
+ SELECT * FROM "assa_insights".v1_2_co6_covid_claims
+ UNION ALL
+ SELECT * FROM "assa_insights".v1_2_co11_covid_claims
+ UNION ALL
+ SELECT * FROM "assa_insights".v1_2_co30_covid_claims
+  UNION ALL
+ SELECT * FROM "assa_insights".v1_2_co18_covid_claims 
 ```
 
 ## Combining claims and exposure
@@ -193,9 +360,7 @@ For exposure, we interpolate linearly between available exposure dates in order 
 Output to `covid_actual_and_expected_deaths`
 
 ```{sql combined, eval=FALSE}
--- Note: Unless you save your query, these tabs will NOT persist if you clear your cookies or change browsers.
-
-   WITH
+    WITH
         date_bounds
         AS
             (  SELECT                                            /* Split by company code and use analytic min/max to only use months available for all cos */
@@ -328,8 +493,7 @@ Output to `covid_actual_and_expected_deaths`
           ,claims.company_code                                                          AS service_client_id
       FROM assa_insights.covid_claims claims INNER JOIN smoker_pcts ON claims.age_band = smoker_pcts.age_band AND claims.sex = smoker_pcts.sex
      WHERE claims.smoker_status NOT IN ('Smoker', 'Non-Smoker')
-
-
+ 
 ```
 
 ## Standardisation
@@ -339,7 +503,7 @@ The final step is to calculate expected claims for 2020 given the observed crude
 Output to `covid_standardised_ave`
 
 ```{sql standardised, eval = FALSE}
-        WITH
+     WITH
         covid_months
         AS
             (SELECT DISTINCT clm_month
@@ -493,7 +657,6 @@ Output to `covid_standardised_ave`
             --,exps.smoothed_life_years
     -- HAVING SUM(act.life_years) > 0
 
-
 ```
 
 ## SAMRC
@@ -503,7 +666,7 @@ Used for chart comparing SAMRC to our data. Bit of work goes into interpolation 
 Goes into `samrc_excess`
 
 ```{sql samrc, eval = FALSE}
-WITH initdata AS (
+ WITH initdata AS (
     SELECT company_code
           ,'Population Deaths Relative to Expected'                 AS series
           ,date_parse (dth_date, '%Y-%m-%d') + INTERVAL '3' DAY     AS clm_month
@@ -569,5 +732,4 @@ dateinterp AS (
            END         AS interp_fac
           ,service_client_id
       FROM dateinterp
-
 ```
