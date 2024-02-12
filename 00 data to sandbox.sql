@@ -45,7 +45,7 @@ WITH
     AS
         (SELECT country
                ,life_number
-               ,COALESCE (try (date_parse (CAST (movement_date AS VARCHAR), '%Y%m%d')), date_parse (CAST (movement_date AS VARCHAR), '%Y%m'))    movement_date
+               ,CAST( COALESCE (try (date_parse (CAST (movement_date AS VARCHAR), '%Y%m%d')), date_parse (CAST (movement_date AS VARCHAR), '%Y%m')) AS DATE)    movement_date
                ,gross_income
                ,education
            FROM "assa-lake".v1_co25_newgen_se_data),
