@@ -178,6 +178,23 @@ WITH exposure_years AS (
                ,exposure_boundary_dates.*
            FROM exposure_boundary_dates
           WHERE end_date <= study_end_date AND begin_date < study_end_date AND begin_date <= end_date)
+    /* -------------------------------------------------------------------------------------------------------
+    Due to some incorrect movement codes some duplicate claims are still slipping through (particularly co30)
+    Adding another step to flag problem claims
+    --------------------------------------------------------------------------------------------------------- */
+    ,final_claim_cleanup
+     AS 
+        (SELECT CASE 
+                    WHEN SUM(CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END)
+                            OVER (PARTITION BY company_code, policy_number, life_number
+                                  ORDER BY effective_date_of_change_movement, movementcounter, end_date
+                                  ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) >= 1
+                    THEN 0
+                    ELSE 
+                        CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END
+                END                                                                                                                                             AS claim_flag
+               ,exposure_calc.*
+           FROM exposure_calc)
 SELECT CASE
            WHEN calendar_year <= 2006 THEN '≤ 2005'
            ELSE CAST (2 * (calendar_year / 2) AS VARCHAR) || ' - ' || CAST (1 + 2 * (calendar_year / 2) AS VARCHAR) -- Note that 2 * (cy / 2) rounds down to multiple of 2 (integer arithmetic)
@@ -267,24 +284,19 @@ SELECT CASE
       ,begin_date
       ,end_date
       ,effective_date_of_change_movement
+      ,movementcounter
       ,LPAD (movement_code_clean, 3, '0')                                                                                                                       AS change_in_movement_code
       ,sum_assured_in_rand                                                                                                                                      AS sum_assured
       -- We need at least one day of exposure to be associated with each claim record, otherwise standardisation becomes really hard:
-      -- The CASE WHEN ... END part corresponds to the claim marker calculation for actual_claim_cnt below
-      ,GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END)             AS exposure_days
-      ,GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END) / 365.25    AS expyearscen
-      ,  GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END)
-       / CAST (days_in_year AS DOUBLE)                                                                                                                          AS expyearscen_exact
-      ,  GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END)
-       / 365.25
-       * sum_assured_in_rand                                                                                                                                    AS aar_weighted_exposure
-      ,  GREATEST (exposure_days, CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END)
-       / CAST (days_in_year AS DOUBLE)
-       * sum_assured_in_rand                                                                                                                                    AS aar_weighted_exposure_exact
-      ,CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN 1 ELSE 0 END                                       AS actual_claim_cnt
-      ,CASE WHEN movement_code_clean = '30' AND current_termination != 0 AND direction_of_movement = -1 THEN sum_assured_in_rand ELSE 0 END                     AS actual_claim_amt
+      ,GREATEST (exposure_days, claim_flag)                                                                                                                     AS exposure_days
+      ,GREATEST (exposure_days, claim_flag) / 365.25                                                                                                            AS expyearscen
+      ,GREATEST (exposure_days, claim_flag)  / CAST (days_in_year AS DOUBLE)                                                                                    AS expyearscen_exact
+      ,sum_assured_in_rand * GREATEST (exposure_days, claim_flag) / 365.25                                                                                      AS aar_weighted_exposure
+      ,sum_assured_in_rand * GREATEST (exposure_days, claim_flag) / CAST (days_in_year AS DOUBLE)                                                               AS aar_weighted_exposure_exact
+      ,claim_flag                                                                                                                                               AS actual_claim_cnt
+      ,claim_flag * sum_assured_in_rand                                                                                                                         AS actual_claim_amt
       ,CASE
-           WHEN movement_code_clean = '30' AND current_termination != 0
+           WHEN claim_flag = 1 
            THEN
                CASE cause_of_death
                    WHEN 1 THEN 'Cancer'
@@ -306,7 +318,7 @@ SELECT CASE
        END                                                                                                                                                      AS cause_of_death
       ,calendar_year
       ,company_code
-  FROM exposure_calc
+  FROM final_claim_cleanup
  WHERE exposure_days >= 0 AND policy_duration >= 0; 
  
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -417,6 +429,7 @@ SELECT CASE
       ,from_iso8601_date (CAST (year_of_invest AS VARCHAR) || '-01-01')                                                                                   AS begin_date
       ,from_iso8601_date (CAST (year_of_invest AS VARCHAR) || '-12-31')                                                                                   AS end_date
       ,CAST(NULL AS DATE)                                                                                                                                 AS effective_date_of_change_movement
+      ,CAST(NULL AS BIGINT)                                                                                                                               AS movementcounter
       ,'999'                                                                                                                                              AS change_in_movement_code
       ,CAST(NULL AS DOUBLE)                                                                                                                               AS sum_assured
       ,exp_days_cen / 2.0                                                                                                                                 AS exposure_days
