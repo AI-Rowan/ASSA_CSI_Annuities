@@ -272,9 +272,10 @@ SELECT CASE
       ,age_last_at_jan
       ,age_nrst_at_jan
       ,age_last_at_jan + 1                                                                                                                                      AS age_next_at_jan
-      ,CAST (5 * (age_last_at_pa / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last_at_pa / 5) AS VARCHAR)                                                    AS age_last_band
-      ,CAST (5 * (age_nrst_at_pa / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nrst_at_pa / 5) AS VARCHAR)                                                    AS age_nrst_band
-      ,CAST (5 * ((age_last_at_pa + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last_at_pa + 1) / 5) AS VARCHAR)                                        AS age_next_band
+      -- Adding spaces to these so they sort nicely on the charts
+      ,LPAD('', 26 - (age_last_at_pa / 5), ' ') || CAST (5 * (age_last_at_pa / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last_at_pa / 5) AS VARCHAR)        AS age_last_band
+      ,LPAD('', 26 - (age_nrst_at_pa / 5), ' ') || CAST (5 * (age_nrst_at_pa / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nrst_at_pa / 5) AS VARCHAR)        AS age_nrst_band
+      ,LPAD('', 26 - (age_last_at_pa / 5), ' ') || CAST (5 * ((age_last_at_pa + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last_at_pa + 1) / 5) AS VARCHAR) AS age_next_band
       ,policy_date_of_entry
       ,EXTRACT (YEAR FROM policy_date_of_entry)                                                                                                                 AS issue_year
       ,policy_duration
@@ -417,9 +418,9 @@ SELECT CASE
       ,age_last_fixed                                                                                                                                     AS age_last_at_jan
       ,age_nearest_fixed                                                                                                                                  AS age_nrst_at_jan
       ,age_last_fixed + 1                                                                                                                                 AS age_next_at_jan
-      ,CAST (5 * (age_last_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last_fixed / 5) AS VARCHAR)                                              AS age_last_band
-      ,CAST (5 * (age_nearest_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nearest_fixed / 5) AS VARCHAR)                                        AS age_nrst_band
-      ,CAST (5 * ((age_last_fixed + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last_fixed + 1) / 5) AS VARCHAR)                                  AS age_next_band
+      ,LPAD('', 26 - (age_last_fixed / 5), ' ') || CAST (5 * (age_last_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last_fixed / 5) AS VARCHAR)  AS age_last_band
+      ,LPAD('', 26 - (age_nearest_fixed / 5), ' ') || CAST (5 * (age_nearest_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nearest_fixed / 5) AS VARCHAR)  AS age_nrst_band
+      ,LPAD('', 26 - (age_last_fixed / 5), ' ') || CAST (5 * ((age_last_fixed + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last_fixed + 1) / 5) AS VARCHAR)  AS age_next_band
       ,CAST(NULL AS DATE)                                                                                                                                 AS policy_date_of_entry
       ,year_of_invest - duration                                                                                                                          AS issue_year
       ,duration                                                                                                                                           AS policy_duration
