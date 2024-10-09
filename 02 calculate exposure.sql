@@ -206,7 +206,7 @@ SELECT CASE
       ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                               AS sex
       ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                      AS smoking_status
       ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END          AS accelerator_status_detailed
-      ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'No full accelerator' WHEN 3 THEN 'No full accelerator' ELSE 'Unspecified' END       AS accelerator_status
+      ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'No/partial accelerator' WHEN 3 THEN 'No/partial accelerator' ELSE 'Unspecified' END AS accelerator_status
       ,CASE COALESCE (underwriter_loadings, -99)
            WHEN 1 THEN 'EM loading 1% - 50%'
            WHEN 2 THEN 'EM loading 51% - 100%'
@@ -396,7 +396,7 @@ SELECT CASE
       ,CASE sex_code WHEN 1 THEN 'M' WHEN 2 THEN 'F' ELSE 'U' END                                                                                         AS sex
       ,CASE smoking_category WHEN 1 THEN 'S' WHEN 2 THEN 'NS' ELSE 'U' END                                                                                AS smoking_status
       ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'Partially accelerated' WHEN 3 THEN 'No accelerator' ELSE 'Unspecified' END    AS accelerator_status_detailed
-      ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'No full accelerator' WHEN 3 THEN 'No full accelerator' ELSE 'Unspecified' END AS accelerator_status
+      ,CASE accelerator_marker WHEN 1 THEN 'Fully accelerated' WHEN 2 THEN 'No/partial accelerator' WHEN 3 THEN 'No/partial accelerator' ELSE 'Unspecified' END AS accelerator_status
       ,CASE COALESCE(underwriter_loadings,-99)
            WHEN 1 THEN 'EM loading 1% - 50%'
            WHEN 2 THEN 'EM loading 51% - 100%'
