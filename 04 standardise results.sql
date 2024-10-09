@@ -141,8 +141,8 @@ SELECT exps.cy_grouped
                             ,exps.company_code) 
                                             cell_size
       ,'ZAF' as country
+      ,CAST(CAST(exps.calendar_year AS VARCHAR) || '-01-01' AS DATE) calendar_date 
       ,exps.calendar_year
-      ,CAST(exps.calendar_year || '-01-01' AS DATE) calendar_date 
       ,exps.company_code
   FROM assa_sandbox.assa_new_gen_expected  exps
        LEFT JOIN standard_factors stds
