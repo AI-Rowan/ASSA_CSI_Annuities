@@ -68,6 +68,7 @@ SELECT exps.cy_grouped
       ,exps.sex
       ,exps.smoking_status
       ,exps.accelerator_status
+      ,exps.accelerator_status_detailed
       ,exps.underwriter_loadings
       ,exps.loaded_vs_standard
       ,exps.type_of_underwriting
