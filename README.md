@@ -4,4 +4,4 @@ This repository contains SQL for Comodash to perform and experience study on cla
 
 On the Comotion side the separate movements and exposure datasets are combined into one movements table labeled v2_assa_movement.
 
-See [Data Manipulations And Assumptions](docs/data manipulations and assumptions.md) for a description of the process.
+See [Data Manipulations And Assumptions](docs/data%20manipulations%20and%20assumptions.md) for a description of the process.
