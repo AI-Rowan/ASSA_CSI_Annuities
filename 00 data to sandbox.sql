@@ -150,7 +150,18 @@ SELECT CASE
       ,CASE WHEN v2_assa_movement.company_code = 25 THEN co25_secs_mapped.sec ELSE preferred_underwriting_class END    AS preferred_underwriting_class
       ,v2_assa_movement.is_new_generation
       ,special_offer_marker
-      ,underwriter_loadings
+      ,CASE
+           WHEN COALESCE(underwriter_loadings, -99) = -99
+           THEN
+               CASE 
+                   WHEN v2_assa_movement.company_code = 6 AND v2_assa_movement.year_of_data <= 2007 THEN 0
+                   WHEN v2_assa_movement.company_code = 11 AND v2_assa_movement.year_of_data <= 2010 THEN 0
+                   WHEN v2_assa_movement.company_code = 30 AND v2_assa_movement.year_of_data <= 2010 THEN 0
+                   ELSE -99 
+               END 
+           ELSE 
+               underwriter_loadings 
+       END                                                                                                             AS underwriter_loadings              
       ,date_parse ( substr(process_time_stamp, 1, 19), '%Y-%m-%d %H:%i:%s')                                            AS process_time_stamp
       ,process_number
       ,sourcefilename
