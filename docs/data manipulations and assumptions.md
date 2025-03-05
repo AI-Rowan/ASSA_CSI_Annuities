@@ -9,6 +9,7 @@ These apply to companies other than 18
 * Company 11 - certain policies issued prior to 2003 have no exposure before 2009, but then suddenly appear. These are assumed to be errors and removed.
 * Company 25 - confirming issues with changes in policy/life number formats and preferred underwriting classes.
 * Certain datafiles that appear to be errors are excluded (old uploads for company 25, one version of 2014 data for company 6)
+* Underwriter loadings are missing for certain companies in early years, but the data is expected to only be for unloaded lives (Company 6 prior to 2008, Company 11 and Company 30 prior to 2010). In these cases the column value of -99 (unspecified) is replaced with with 0 (unloaded).
 
 Outstanding issues:
 * Something wrong with exposure for company 6 in 2013
