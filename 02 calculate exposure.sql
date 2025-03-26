@@ -453,7 +453,7 @@ SELECT CASE
                LPAD('', 26, ' ') || '0 - 19'
            WHEN age_last_fixed >= 70
            THEN 
-               '70+'
+               '70 - 120'
            ELSE
                LPAD('', 26 - (age_last_fixed / 5), ' ') || CAST (5 * (age_last_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_last_fixed / 5) AS VARCHAR)
        END                                                                                                                                                      AS age_last_band
@@ -463,7 +463,7 @@ SELECT CASE
                LPAD('', 26, ' ') || '0 - 19'
            WHEN age_nearest_fixed >= 70
            THEN 
-               '70+'
+               '70 - 120'
            ELSE
                LPAD('', 26 - (age_nearest_fixed / 5), ' ') || CAST (5 * (age_nearest_fixed / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * (age_nearest_fixed / 5) AS VARCHAR)
        END                                                                                                                                                      AS age_nrst_band
@@ -473,7 +473,7 @@ SELECT CASE
                LPAD('', 26, ' ') || '0 - 19'
            WHEN age_last_fixed >= 69
            THEN 
-               '70+'
+               '70 - 120'
            ELSE
                LPAD('', 26 - (age_last_fixed / 5), ' ') || CAST (5 * ((age_last_fixed + 1) / 5) AS VARCHAR) || ' - ' || CAST (4 + 5 * ((age_last_fixed + 1) / 5) AS VARCHAR)
        END                                                                                                                                                      AS age_next_band
