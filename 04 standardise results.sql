@@ -1,31 +1,32 @@
-DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_expected_std;
+DROP TABLE IF EXISTS mortality_sandbox.assa_new_gen_expected_std;
 
-CREATE TABLE assa_sandbox.assa_new_gen_expected_std
+CREATE TABLE mortality_sandbox.assa_new_gen_expected_std
 	WITH (
-			format = 'ORC'
-			,orc_compression = 'ZLIB'
-			,partitioned_by = ARRAY ['calendar_year', 'company_code']
-			,bucketed_by = ARRAY ['policy_year','sex']
-			,bucket_count = 25
+	    -- priority = 5,
+			format = 'ORC',
+			orc_compression = 'ZLIB',
+			partitioned_by = ARRAY ['calendar_year', 'company_code', 'service_client_id'],
+			bucketed_by = ARRAY ['policy_year','sex'],
+			bucket_count = 25
 			) AS
 WITH
     rating_factors
     AS
         (SELECT *
            FROM (SELECT DISTINCT age_nrst_band
-                   FROM assa_sandbox.assa_new_gen_expected)
+                   FROM mortality_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT duration5
-                   FROM assa_sandbox.assa_new_gen_expected)
+                   FROM mortality_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT sex
-                   FROM assa_sandbox.assa_new_gen_expected)
+                   FROM mortality_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT smoking_status
-                   FROM assa_sandbox.assa_new_gen_expected)
+                   FROM mortality_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT se_class
-                   FROM assa_sandbox.assa_new_gen_expected)
+                   FROM mortality_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT accelerator_status
-                   FROM assa_sandbox.assa_new_gen_expected)
+                   FROM mortality_sandbox.assa_new_gen_expected)
                ,(SELECT DISTINCT company_code
-                   FROM assa_sandbox.assa_new_gen_expected)),
+                   FROM mortality_sandbox.assa_new_gen_expected)),
     standard_factors
     AS
         (  SELECT rf.age_nrst_band
@@ -43,8 +44,8 @@ WITH
                  ,SUM (SUM (expyearscen_exact)) OVER (PARTITION BY rf.accelerator_status) / SUM (SUM (expyearscen_exact)) OVER ()     accel_factor
                  ,SUM (SUM (expyearscen_exact)) OVER (PARTITION BY rf.company_code) / SUM (SUM (expyearscen_exact)) OVER ()           company_factor
              FROM rating_factors rf
-                  INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'standard_year'
-                  LEFT JOIN assa_sandbox.assa_new_gen_expected exps
+                  INNER JOIN mortality_sandbox.csi_mort_params ON csi_mort_params.param_name = 'standard_year'
+                  LEFT JOIN mortality_sandbox.assa_new_gen_expected exps
                       ON     rf.age_nrst_band = exps.age_nrst_band
                          AND rf.duration5 = exps.duration5
                          AND rf.sex = exps.sex
@@ -145,7 +146,8 @@ SELECT exps.cy_grouped
       ,CAST(CAST(exps.calendar_year AS VARCHAR) || '-01-01' AS DATE) calendar_date 
       ,exps.calendar_year
       ,exps.company_code
-  FROM assa_sandbox.assa_new_gen_expected  exps
+      ,exps.company_code as service_client_id
+  FROM mortality_sandbox.assa_new_gen_expected  exps
        LEFT JOIN standard_factors stds
            ON     exps.sex = stds.sex
               AND exps.age_nrst_band = stds.age_nrst_band
@@ -155,5 +157,5 @@ SELECT exps.cy_grouped
               AND exps.accelerator_status = stds.accelerator_status
               AND exps.company_code = stds.company_code
 	      
-  --UNION ALL select * from assa_sandbox.assa_new_gen_expected_std_nam    need to update NAM code to match changes to SA code
+  --UNION ALL select * from mortality_sandbox.assa_new_gen_expected_std_nam    need to update NAM code to match changes to SA code
   ;
