@@ -146,7 +146,7 @@ SELECT exps.cy_grouped
       ,CAST(CAST(exps.calendar_year AS VARCHAR) || '-01-01' AS DATE) calendar_date 
       ,exps.calendar_year
       ,exps.company_code
-      ,exps.company_code as service_client_id
+      ,cast(exps.company_code as varchar) as service_client_id
   FROM mortality_sandbox.assa_new_gen_expected  exps
        LEFT JOIN standard_factors stds
            ON     exps.sex = stds.sex
