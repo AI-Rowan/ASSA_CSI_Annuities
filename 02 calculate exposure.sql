@@ -1,12 +1,12 @@
-DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_exposure;
+DROP TABLE IF EXISTS mortality_sandbox.assa_new_gen_exposure;
 
-CREATE TABLE assa_sandbox.assa_new_gen_exposure
-    WITH (
-            format = 'ORC'
-            ,orc_compression = 'ZLIB'
-            ,partitioned_by = ARRAY ['calendar_year', 'company_code']
-            ,bucketed_by = ARRAY ['policy_year','sex']
-            ,bucket_count = 25
+CREATE TABLE mortality_sandbox.assa_new_gen_exposure
+    WITH (  -- priority = 3
+            format = 'ORC',
+            orc_compression = 'ZLIB',
+            partitioned_by = ARRAY ['calendar_year', 'company_code'],
+            bucketed_by = ARRAY ['policy_year','sex'],
+            bucket_count = 25
             ) AS
 /* -------------------------------------------------------------------------------------------------------
     First we calculate a list of all the years that we will have exposure for. 
@@ -19,7 +19,7 @@ WITH exposure_years AS (
             ,y.policy_year + o.offset AS calendar_year
         FROM (
             SELECT sequence(MIN(EXTRACT(YEAR FROM effective_date_of_change_movement)) - 1, MAX(EXTRACT(YEAR FROM effective_date_of_change_movement)))
-            FROM assa_sandbox.assa_new_gen_movement
+            FROM mortality_sandbox.assa_new_gen_movement
             ) AS years(policy_year)
         CROSS JOIN UNNEST(policy_year) AS y(policy_year)
             ,(
@@ -84,7 +84,7 @@ WITH exposure_years AS (
                                        ,life_number
                                        ,effective_date_of_change_movement)     AS current_termination
                ,assa_new_gen_movement.*
-           FROM assa_sandbox.assa_new_gen_movement) 
+           FROM mortality_sandbox.assa_new_gen_movement) 
     /* -------------------------------------------------------------------------------------------------------
     Next we need to find the next movement for this policy so that we know the end of the exposure period
     We cut off at the end of the study period, or if this is a termination stop where we are.
@@ -119,7 +119,7 @@ WITH exposure_years AS (
                     OVER (PARTITION BY company_code, policy_number, life_number ORDER BY effective_date_of_change_movement, movementcounter)    AS next_movement
                ,date (csi_mort_params.param_value)                                                                                              AS study_end_date
                ,termination_check.*
-           FROM termination_check INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
+           FROM termination_check INNER JOIN mortality_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
           WHERE NOT ( -- We are conservative and try to include all claims even if there was an earlier termination record, unless that record was a claim too
                         (COALESCE (prior_termination, 0) < 0 AND movement_code_clean != '30')
                      OR (movement_code_clean = '30' AND COALESCE (following_reversals, 0) > 0))) 
@@ -353,15 +353,15 @@ SELECT CASE
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     Now we convert company 18's data to a format consistent to be appended to the rest
    ----------------------------------------------------------------------------------------------------------------------------------------------- */
-DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_exposure_18;
+DROP TABLE IF EXISTS mortality_sandbox.assa_new_gen_exposure_18;
 
-CREATE TABLE assa_sandbox.assa_new_gen_exposure_18
-    WITH (
-            format = 'ORC'
-            ,orc_compression = 'ZLIB'
-            ,partitioned_by = ARRAY ['calendar_year', 'company_code']
-            ,bucketed_by = ARRAY ['policy_year','sex']
-            ,bucket_count = 25
+CREATE TABLE mortality_sandbox.assa_new_gen_exposure_18
+    WITH (  -- priority = 3,
+            format = 'ORC',
+            orc_compression = 'ZLIB',
+            partitioned_by = ARRAY ['calendar_year', 'company_code'],
+            bucketed_by = ARRAY ['policy_year','sex'],
+            bucket_count = 25
             ) AS
 WITH
     age_offsets(offset)
@@ -372,16 +372,16 @@ WITH
     dib_to_use 
     AS  
         (SELECT MAX(data_import_batch) AS dib_to_use
-           FROM "assa-lake".v1_mortality_co18),
+           FROM "mortality_lake".v1_mortality_co18),
     ages_fix
     AS
         (SELECT dat.*, CAST(age_last AS BIGINT) AS age_last_fixed, CAST(age_last + age_offsets.offset AS BIGINT) AS age_nearest_fixed
-           FROM "assa-lake".v1_mortality_co18 dat
+           FROM "mortality_lake".v1_mortality_co18 dat
           INNER JOIN dib_to_use ON dat.data_import_batch = dib_to_use.dib_to_use, age_offsets
           WHERE age_nearest IS NULL
          UNION ALL
          SELECT dat.*, CAST(age_nearest - age_offsets.offset AS BIGINT) AS age_last_fixed, CAST(age_nearest AS BIGINT) AS age_nearest_fixed
-           FROM "assa-lake".v1_mortality_co18 dat
+           FROM "mortality_lake".v1_mortality_co18 dat
           INNER JOIN dib_to_use ON dat.data_import_batch = dib_to_use.dib_to_use, age_offsets
           WHERE age_last IS NULL)
 SELECT CASE
@@ -500,7 +500,7 @@ SELECT CASE
       ,year_of_invest                                                                                                                                     AS calendar_year
       ,company_code
   FROM ages_fix
- INNER JOIN assa_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
+ INNER JOIN mortality_sandbox.csi_mort_params ON csi_mort_params.param_name = 'exposure_end_date'
  WHERE     exp_days_cen >= 0 
        AND duration >= 0 
        AND year_of_invest < EXTRACT(YEAR FROM DATE(param_value)) 
