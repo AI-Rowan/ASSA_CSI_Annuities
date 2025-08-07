@@ -3,12 +3,21 @@
     which are old versions that should be ignored
    --------------------------------------------------------------------------------------------------------------------- */
 
-DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_data_exclusions;
+DROP TABLE IF EXISTS mortality_sandbox.assa_new_gen_data_exclusions;
 
-CREATE TABLE assa_sandbox.assa_new_gen_data_exclusions (company_code, year_of_data, data_import_batch) AS 
+CREATE TABLE mortality_sandbox.assa_new_gen_data_exclusions 
+with (
+  -- priority = 1,
+  bucketed_by = array[],
+  bucket_count = 0,
+  partitioned_by = array[]
+)
+AS
 SELECT * FROM 
     (VALUES (25, CAST(NULL AS VARCHAR), '2019-12-04'),
-            (6, 'COMBINED_outfile_old_and_new_gen_6_2014.csv', '2020-05-15')) AS t(company_code, filename, data_import_batch);
+            (6, 'COMBINED_outfile_old_and_new_gen_6_2014.csv', '2020-05-15')) AS t(company_code, filename, data_import_batch)
+;
+
 
 /* ---------------------------------------------------------------------------------------------------------------------
     co25 SEC data is provided in the form of a separate income and education table.
@@ -18,16 +27,15 @@ SELECT * FROM
 
     The resulting SE classes are assumed to be unchanged between movement dates provided.
    --------------------------------------------------------------------------------------------------------------------- */
+DROP TABLE IF EXISTS mortality_sandbox.co25_secs_mapped;
 
-DROP TABLE IF EXISTS assa_sandbox.co25_secs_mapped;
-
-CREATE TABLE assa_sandbox.co25_secs_mapped
-    WITH (
-            format = 'ORC'
-            ,orc_compression = 'ZLIB'
-            ,partitioned_by = ARRAY ['country']
-            ,bucketed_by = ARRAY ['life_number','movement_date_min']
-            ,bucket_count = 50
+CREATE TABLE mortality_sandbox.co25_secs_mapped
+    WITH (  -- priority = 1,
+            format = 'ORC',
+            orc_compression = 'ZLIB',
+            partitioned_by = ARRAY ['country'],
+            bucketed_by = ARRAY ['life_number','movement_date_min'],
+            bucket_count = 50
             ) AS
 WITH
     sec_mapping_table
@@ -40,7 +48,7 @@ WITH
                ,MIN (t1.income_from)
                     OVER (PARTITION BY t1.calendar_year, t1.qualification, t2.source_company_category ORDER BY t1.income_from ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)     income_max
                ,(105 - t1.irp_class)                                                                                                                                                sec_to_use -- SEs in table are backwards relative to what we need. We add 100 as spec expects SEs 100+ with first digit representing version
-           FROM "assa-lake".v1_co25_sec_mapping_table t1 INNER JOIN v1_co25_sec_translation_table t2 ON t1.qualification = t2.csi_category),
+           FROM "mortality_lake".v1_co25_sec_mapping_table t1 INNER JOIN "mortality_lake".v1_co25_sec_translation_table t2 ON t1.qualification = t2.csi_category),
     inc_edu_clean
     AS
         (SELECT country
@@ -48,7 +56,7 @@ WITH
                ,CAST( COALESCE (try (date_parse (CAST (movement_date AS VARCHAR), '%Y%m%d')), date_parse (CAST (movement_date AS VARCHAR), '%Y%m')) AS DATE)    movement_date
                ,gross_income
                ,education
-           FROM "assa-lake".v1_co25_newgen_se_data),
+           FROM "mortality_lake".v1_co25_newgen_se_data),
     translated_secs
     AS
         (SELECT inc_edu_clean.country
@@ -74,7 +82,8 @@ WITH
         ,MAX (sec_to_use)                                                                                                                        sec
         ,country
     FROM translated_secs
-GROUP BY country, life_number, movement_date;
+GROUP BY country, life_number, movement_date
+;
 
 
 /* ---------------------------------------------------------------------------------------------------------------------
@@ -82,15 +91,15 @@ GROUP BY country, life_number, movement_date;
     There are a number of assumptions made to clean up the data
    --------------------------------------------------------------------------------------------------------------------- */
 
-DROP TABLE IF EXISTS assa_sandbox.assa_new_gen_movement;
+DROP TABLE IF EXISTS mortality_sandbox.assa_new_gen_movement;
 
-CREATE TABLE assa_sandbox.assa_new_gen_movement
-    WITH (
-            format = 'ORC'
-            ,orc_compression = 'ZLIB'
-            ,partitioned_by = ARRAY ['sourcefilename', 'company_code','year_of_data']
-            ,bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number']
-            ,bucket_count = 25
+CREATE TABLE mortality_sandbox.assa_new_gen_movement
+    WITH (  -- priority = 2,
+            format = 'ORC',
+            orc_compression = 'ZLIB',
+            partitioned_by = ARRAY ['sourcefilename', 'company_code','year_of_data'],
+            bucketed_by = ARRAY ['effective_date_of_change_movement','policy_number'],
+            bucket_count = 25
             ) AS
 WITH
     dib_to_use
@@ -99,7 +108,7 @@ WITH
                  ,year_of_data
                  ,is_new_generation
                  ,MAX (substr (process_time_stamp, 1, 10))     AS dib_to_use -- This would have been data_import_batch but v2 table overwrote that with a single date for all files. process_time_stamp is equivalent, but with times added.
-             FROM "assa-lake".v2_assa_movement
+             FROM "mortality_lake".v2_assa_movement
          GROUP BY company_code, year_of_data, is_new_generation)
 SELECT CASE
            WHEN v2_assa_movement.company_code = 6 AND v2_assa_movement.year_of_data <= 2013
@@ -167,13 +176,13 @@ SELECT CASE
       ,sourcefilename
       ,v2_assa_movement.company_code
       ,v2_assa_movement.year_of_data
-  FROM "assa-lake".v2_assa_movement
+  FROM "mortality_lake".v2_assa_movement
        INNER JOIN dib_to_use
            ON     v2_assa_movement.year_of_data = dib_to_use.year_of_data
               AND v2_assa_movement.company_code = dib_to_use.company_code
               AND SUBSTRING (v2_assa_movement.process_time_stamp, 1, 10) = dib_to_use.dib_to_use
               AND v2_assa_movement.is_new_generation = dib_to_use.is_new_generation
-       /*LEFT JOIN assa_sandbox.assa_new_gen_data_exclusions excl ON v2_assa_movement.company_code = excl.company_code
+       /*LEFT JOIN mortality_sandbox.assa_new_gen_data_exclusions excl ON v2_assa_movement.company_code = excl.company_code
                   AND v2_assa_movement.sourcefilename = COALESCE(excl.filename, v2_assa_movement.sourcefilename)
                  AND SUBSTRING (v2_assa_movement.process_time_stamp, 1, 10) = excl.data_import_batch*/
        /* -------------------------------------------------------------------------------------------------------------------------------------------------
@@ -183,7 +192,7 @@ SELECT CASE
           Seems there were only 28 cases so maybe didn't need to worry
           ------------------------------------------------------------------------------------------------------------------------------------------------- */
        LEFT JOIN (  SELECT company_code AS company_code_z, policy_number AS policy_number_z                /* ,life number -- life number is null for co 11 */
-                      FROM "assa-lake".v2_assa_movement
+                      FROM "mortality_lake".v2_assa_movement
                      WHERE company_code = 11 AND date (policy_date_of_entry) < DATE '2003-01-01'
                   GROUP BY company_code, policy_number
                     HAVING MIN (year_of_data) = 2009) AS c11_check
@@ -193,7 +202,7 @@ SELECT CASE
           We use a mapping table provided by them to convert old policy numbers to new format
           Note that mappings only exist for policies that were inforce both before and after the changeover
           ------------------------------------------------------------------------------------------------------------------------------------------------- */
-       LEFT JOIN "assa-lake".v1_co6_policy_number_mapping co6_pn_mappings
+       LEFT JOIN "mortality_lake".v1_co6_policy_number_mapping co6_pn_mappings
            ON CAST (co6_pn_mappings.mapped_policy_number AS VARCHAR) = v2_assa_movement.policy_number AND v2_assa_movement.company_code = 6
        /* -------------------------------------------------------------------------------------------------------------------------------------------------
           For company 25 the format of the life numbers changed around 2012
@@ -213,7 +222,7 @@ SELECT CASE
                            ) RANGE BETWEEN UNBOUNDED PRECEDING
                            AND UNBOUNDED FOLLOWING
                    ) AS dob_to_use
-           FROM "assa-lake".v2_assa_movement
+           FROM "mortality_lake".v2_assa_movement
            WHERE company_code = 25
            ORDER BY policy_number
                ,coalesce(regexp_extract(life_number, policy_number || '_(\d*)', 1), regexp_extract(life_number, '^(\d{1,3})_1$', 1))
@@ -222,46 +231,48 @@ SELECT CASE
            AND c25_life_data.policy_date_of_entry = v2_assa_movement.policy_date_of_entry
            AND c25_life_data.life_number = v2_assa_movement.life_number
            AND v2_assa_movement.company_code = 25*/
-       LEFT JOIN assa_sandbox.co25_secs_mapped
+       LEFT JOIN mortality_sandbox.co25_secs_mapped
            ON     v2_assa_movement.life_number = co25_secs_mapped.life_number
               AND date (effective_date_of_change_movement) < COALESCE (movement_date_max, DATE '2999-12-31')
               AND date (effective_date_of_change_movement) >= movement_date_min
               AND co25_secs_mapped.country = 'South Africa'
               AND v2_assa_movement.company_code = 25
- WHERE c11_check.policy_number_z IS NULL AND v2_assa_movement.is_new_generation = 1;
---AND excl.data_import_batch IS NULL;
+ WHERE c11_check.policy_number_z IS NULL AND v2_assa_movement.is_new_generation = 1
+--AND excl.data_import_batch IS NULL
 ;
 
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     Next table is the SA85-90 rates
    ----------------------------------------------------------------------------------------------------------------------------------------------- */
-CREATE TABLE assa_sandbox.mortality_sa8590
-    WITH (
-            format = 'ORC'
-            ,orc_compression = 'ZLIB'
-            ,partitioned_by = ARRAY ['duration']
-            ,bucketed_by = ARRAY ['age']
-            ,bucket_count = 10
+DROP TABLE IF EXISTS mortality_sandbox.mortality_sa8590;
+CREATE TABLE mortality_sandbox.mortality_sa8590
+    WITH (  -- priority = 1,
+            format = 'ORC',
+            orc_compression = 'ZLIB',
+            partitioned_by = ARRAY ['duration'],
+            bucketed_by = ARRAY ['age'],
+            bucket_count = 10
             )
 AS
 SELECT age
     ,mortality_rate_qx
     ,force_of_mortality_mux
     ,duration
-FROM "assa-lake".mortality_sa8590;
+FROM "mortality_lake".mortality_sa8590
+;
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------------
     This creates a table containing parameters for the experience calculation
     > exposure_end_date : the cutoff date for the exposure calculation
     ----------------------------------------------------------------------------------------------------------------------------------------------- */
-DROP TABLE IF EXISTS assa_sandbox.csi_mort_params;
+DROP TABLE IF EXISTS mortality_sandbox.csi_mort_params;
 
-CREATE TABLE assa_sandbox.csi_mort_params
-    WITH (
-            format = 'ORC'
-            ,orc_compression = 'ZLIB'
-            ,partitioned_by = ARRAY ['param_name']
+CREATE TABLE mortality_sandbox.csi_mort_params
+    WITH (  -- priority = 1,
+            format = 'ORC',
+            orc_compression = 'ZLIB',
+            partitioned_by = ARRAY ['param_name']
             ) AS
 
 SELECT *
