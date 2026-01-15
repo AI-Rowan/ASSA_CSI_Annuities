@@ -5,6 +5,8 @@
 
 DROP TABLE IF EXISTS mortality_sandbox.assa_new_gen_data_exclusions;
 
+-- run the code in the Comodash online tool
+
 CREATE TABLE mortality_sandbox.assa_new_gen_data_exclusions 
 with (
   -- priority = 1,
